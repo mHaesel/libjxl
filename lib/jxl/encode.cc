@@ -57,6 +57,8 @@
 #include "lib/jxl/modular/options.h"
 #include "lib/jxl/padded_bytes.h"
 
+#include "lib/jxl/progress_manager.h"
+
 struct JxlErrorOrStatus {
   // NOLINTNEXTLINE(google-explicit-constructor)
   operator jxl::Status() const {
@@ -1012,6 +1014,8 @@ jxl::Status JxlEncoder::ProcessOneEnqueuedInput() {
       frame_info.timecode = timecode;
       frame_info.name = input_frame->option_values.frame_name;
 
+      jpegxl::progress::advanceFrameNumber();
+      jpegxl::progress::addFrameInfoForProgress(frame_info.image_bit_depth.bits_per_sample,input_frame->frame_data.xsize,input_frame->frame_data.ysize);
       if (!jxl::EncodeFrame(&memory_manager, input_frame->option_values.cparams,
                             frame_info, &metadata, input_frame->frame_data, cms,
                             thread_pool.get(), &output_processor,
@@ -1542,7 +1546,26 @@ JxlEncoderStatus JxlEncoderSetFrameDistance(
   }
   return JxlErrorOrStatus::Success();
 }
-
+void DJxlProgressStartThread()
+{
+  jpegxl::progress::startThread();
+}
+void DJxlProgressAddStep(const char* name, unsigned int totalProg, unsigned int prog, bool printProg)
+{
+  jpegxl::progress::addStep(jpegxl::progress::step(std::string(name),totalProg,prog,printProg));
+}
+void DJxlProgressPopStep(const char* name)
+{
+  jpegxl::progress::popStep(name);
+}
+void DJxlProgressAdvanceCurrentProg(const char* name,unsigned int num)
+{
+  jpegxl::progress::advanceCurrentProg(name,num);
+}
+void DJxlProgressSetQuiet()
+{
+  jpegxl::progress::quiet=true;
+}
 JxlEncoderStatus JxlEncoderSetExtraChannelDistance(
     JxlEncoderFrameSettings* frame_settings, size_t index, float distance) {
   if (index >= frame_settings->enc->metadata.m.num_extra_channels) {
@@ -2450,6 +2473,7 @@ JxlEncoderStatus JxlEncoderAddImageFrame(
     const JxlPixelFormat* pixel_format, const void* buffer, size_t size) {
   size_t xsize;
   size_t ysize;
+  jpegxl::progress::advanceTotalNumberOfFrames();
   if (GetCurrentDimensions(frame_settings, xsize, ysize) != JXL_ENC_SUCCESS) {
     return JXL_API_ERROR(frame_settings->enc, JXL_ENC_ERR_GENERIC,
                          "bad dimensions");

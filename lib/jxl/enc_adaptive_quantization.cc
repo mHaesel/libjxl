@@ -58,6 +58,7 @@
 #include "lib/jxl/image_ops.h"
 #include "lib/jxl/quant_weights.h"
 
+#include "lib/jxl/progress_manager.h"
 // Set JXL_DEBUG_ADAPTIVE_QUANTIZATION to 1 to enable debugging.
 #ifndef JXL_DEBUG_ADAPTIVE_QUANTIZATION
 #define JXL_DEBUG_ADAPTIVE_QUANTIZATION 0
@@ -982,6 +983,7 @@ Status FindBestQuantization(const FrameHeader& frame_header,
   if (cparams.speed_tier <= SpeedTier::kTortoise) {
     iters = kMaxButteraugliIters;
   }
+  jpegxl::progress::addStep(jpegxl::progress::step("iter",iters+1,0,true));
   for (int i = 0; i < iters + 1; ++i) {
     if (JXL_DEBUG_ADAPTIVE_QUANTIZATION) {
       printf("\nQuantization field:\n");
@@ -992,21 +994,30 @@ Status FindBestQuantization(const FrameHeader& frame_header,
         printf("\n");
       }
     }
+    jpegxl::progress::advanceCurrentProg("iter");
+    jpegxl::progress::addStep(jpegxl::progress::step("setQuantField"));
     JXL_RETURN_IF_ERROR(quantizer.SetQuantField(initial_quant_dc, quant_field,
                                                 &raw_quant_field));
+    jpegxl::progress::popStep("setQuantField");
+    jpegxl::progress::addStep(jpegxl::progress::step("RoundtripImage"));
     JXL_ASSIGN_OR_RETURN(
         ImageBundle dec_linear,
         RoundtripImage(frame_header, opsin, enc_state, cms, pool));
+    jpegxl::progress::popStep("RoundtripImage");
     float score;
     ImageF diffmap;
+    jpegxl::progress::addStep(jpegxl::progress::step("Compare"));
     JXL_RETURN_IF_ERROR(comparator.CompareWith(dec_linear, &diffmap, &score));
     if (!lower_is_better) {
       score = -score;
       ScaleImage(-1.0f, &diffmap);
     }
+    jpegxl::progress::popStep("Compare");
+    jpegxl::progress::addStep(jpegxl::progress::step("tileDistMap"));
     JXL_ASSIGN_OR_RETURN(tile_distmap,
                          TileDistMap(diffmap, 8 * cparams.resampling, 0,
                                      enc_state->shared.ac_strategy));
+    jpegxl::progress::popStep("tileDistMap");
     if (JXL_DEBUG_ADAPTIVE_QUANTIZATION && WantDebugOutput(cparams)) {
       JXL_RETURN_IF_ERROR(DumpImage(cparams, ("dec" + ToString(i)).c_str(),
                                     *dec_linear.color()));
@@ -1040,6 +1051,7 @@ Status FindBestQuantization(const FrameHeader& frame_header,
       // Don't allow optimization to make the quant field a lot worse than
       // what the initial guess was. This allows the AC field to have enough
       // precision to reduce the oscillations due to the dc reconstruction.
+      jpegxl::progress::addStep(jpegxl::progress::step("origCompare"));
       double kInitMul = 0.6;
       const double kOneMinusInitMul = 1.0 - kInitMul;
       for (size_t y = 0; y < quant_field.ysize(); ++y) {
@@ -1054,6 +1066,7 @@ Status FindBestQuantization(const FrameHeader& frame_header,
           }
         }
       }
+      jpegxl::progress::popStep("origCompare");
     }
 
     double cur_pow = 0.0;
@@ -1063,6 +1076,7 @@ Status FindBestQuantization(const FrameHeader& frame_header,
         cur_pow = 0;
       }
     }
+    jpegxl::progress::addStep(jpegxl::progress::step("quant"));
     if (cur_pow == 0.0) {
       for (size_t y = 0; y < quant_field.ysize(); ++y) {
         const float* const JXL_RESTRICT row_dist = tile_distmap.Row(y);
@@ -1108,9 +1122,11 @@ Status FindBestQuantization(const FrameHeader& frame_header,
         }
       }
     }
+    jpegxl::progress::popStep("quant");
   }
   JXL_RETURN_IF_ERROR(
       quantizer.SetQuantField(initial_quant_dc, quant_field, &raw_quant_field));
+  jpegxl::progress::popStep("iter");
   return true;
 }
 

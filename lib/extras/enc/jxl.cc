@@ -9,6 +9,7 @@
 #include <jxl/encode.h>
 #include <jxl/encode_cxx.h>
 #include <jxl/types.h>
+#include "lib/jxl/progress_manager.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -123,6 +124,7 @@ bool ReadCompressedOutput(JxlEncoder* enc, std::vector<uint8_t>* compressed) {
   compressed->resize(next_out - compressed->data());
   if (result != JXL_ENC_SUCCESS) {
     fprintf(stderr, "JxlEncoderProcessOutput failed.\n");
+    std::abort();
     return false;
   }
   return true;
@@ -339,8 +341,9 @@ bool EncodeImageJXL(const JXLCompressParams& params, const PackedPixelFile& ppf,
       }
       JxlEncoderCloseBoxes(enc);
     }
-
+    DJxlProgressAddStep("Add Frame", ppf.frames.size(), 0, true);
     for (size_t num_frame = 0; num_frame < ppf.frames.size(); ++num_frame) {
+      DJxlProgressAdvanceCurrentProg("Add Frame",1);
       const jxl::extras::PackedFrame& pframe = ppf.frames[num_frame];
       const jxl::extras::PackedImage& pimage = pframe.color;
       JxlPixelFormat ppixelformat = pimage.format;
@@ -369,7 +372,10 @@ bool EncodeImageJXL(const JXLCompressParams& params, const PackedPixelFile& ppf,
         }
       }
     }
+    DJxlProgressPopStep("Add Frame");
+    DJxlProgressAddStep("Add ChunkedFrame", ppf.chunked_frames.size(), 0, true);
     for (size_t fi = 0; fi < ppf.chunked_frames.size(); ++fi) {
+      DJxlProgressAdvanceCurrentProg("Add ChunkedFrame",1);
       ChunkedPackedFrame& chunked_frame = ppf.chunked_frames[fi];
       size_t num_interleaved_alpha =
           (chunked_frame.format.num_channels - ppf.info.num_color_channels);
@@ -385,6 +391,7 @@ bool EncodeImageJXL(const JXLCompressParams& params, const PackedPixelFile& ppf,
         return false;
       }
     }
+    DJxlProgressPopStep("Add ChunkedFrame");
   }
   JxlEncoderCloseInput(enc);
   if (params.HasOutputProcessor()) {

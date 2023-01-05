@@ -20,6 +20,8 @@
 #include <utility>
 #include <vector>
 
+#include <iostream>
+
 #include "lib/jxl/ac_context.h"
 #include "lib/jxl/ac_strategy.h"
 #include "lib/jxl/base/bits.h"
@@ -84,6 +86,8 @@
 #include "lib/jxl/splines.h"
 #include "lib/jxl/toc.h"
 
+
+#include "lib/jxl/progress_manager.h"
 namespace jxl {
 
 Status ParamsPostInit(CompressParams* p) {
@@ -1284,6 +1288,7 @@ Status EncodeGlobalACInfo(PassesEncoderState* enc_state, BitWriter* writer,
     }
     hist_params.streaming_mode = enc_state->streaming_mode;
     hist_params.initialize_global_state = enc_state->initialize_global_state;
+    jpegxl::progress::addStep(jpegxl::progress::step("frameHist"));
     JXL_ASSIGN_OR_RETURN(
         size_t cost,
         BuildAndEncodeHistograms(
@@ -1292,6 +1297,7 @@ Status EncodeGlobalACInfo(PassesEncoderState* enc_state, BitWriter* writer,
             enc_state->passes[i].ac_tokens, &enc_state->passes[i].codes, writer,
             LayerType::Ac, aux_out));
     (void)cost;
+    jpegxl::progress::popStep("frameHist");
   }
 
   return true;
@@ -2092,7 +2098,10 @@ JXL_NOINLINE Status EncodeFrameStreaming(
         &group_codes, aux_out));
     JXL_ENSURE(enc_state->special_frames.empty());
     if (i == 0) {
-      BitWriter writer{memory_manager};
+      frame_data.usesAllPal = enc_state->shared.image_features.usesAllChannelPal;
+      frame_data.usesXPal = enc_state->shared.image_features.usesXPal;
+      frame_data.usesYPal = enc_state->shared.image_features.usesYPal;
+  BitWriter writer{memory_manager};
       JXL_RETURN_IF_ERROR(WriteFrameHeader(frame_header, &writer, aux_out));
       JXL_RETURN_IF_ERROR(
           writer.WithMaxBits(8, LayerType::Header, aux_out, [&]() -> Status {
@@ -2179,6 +2188,10 @@ Status EncodeFrameOneShot(JxlMemoryManager* memory_manager,
       frame_data.xsize, frame_data.ysize, cms, pool, frame_header, *enc_modular,
       *enc_state, &group_codes, aux_out));
 
+  frame_data.usesAllPal = enc_state->shared.image_features.usesAllChannelPal;
+  frame_data.usesXPal = enc_state->shared.image_features.usesXPal;
+  frame_data.usesYPal = enc_state->shared.image_features.usesYPal;
+
   BitWriter writer{memory_manager};
   JXL_RETURN_IF_ERROR(writer.AppendByteAligned(enc_state->special_frames));
   JXL_RETURN_IF_ERROR(WriteFrameHeader(frame_header, &writer, aux_out));
@@ -2195,6 +2208,371 @@ Status EncodeFrameOneShot(JxlMemoryManager* memory_manager,
   JXL_RETURN_IF_ERROR(AppendData(*output_processor, frame_bytes));
 
   return true;
+}
+
+#define JXL_RUN_FRAME_TRIAL( name )do{bool prevAllPal = frame_data.usesAllPal; bool prevXPal = frame_data.usesXPal; bool prevYPal = frame_data.usesYPal;  JxlEncoderOutputProcessorWrapper output_processor(memory_manager); JXL_RETURN_IF_ERROR(EncodeFrame(memory_manager, trialParams, frame_info, metadata, frame_data, cms,pool, &output_processor, aux_out)); JXL_RETURN_IF_ERROR(output_processor.SetFinalizedPosition()); std::vector<uint8_t> output; JXL_RETURN_IF_ERROR(output_processor.CopyOutput(output)); /*std::cout<<output.size()<<" || "<<name;if(bestSize>output.size() && bestSize !=std::numeric_limits<size_t>::max())std::cout<<" -"<<(bestSize - output.size());std::cout<<std::endl*/; if(output.size() < bestSize) {    bestSize = output.size();   bestOutput = trialVecPtr(new trialVec(std::move(output)));   cparams = trialParams; }else {    frame_data.usesAllPal = prevAllPal;    frame_data.usesXPal = prevXPal;frame_data.usesYPal = prevYPal;  }}while(0);
+using trialVecPtr = std::unique_ptr<std::vector<uint8_t>>;
+using trialVec = std::vector<uint8_t>;
+
+Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
+                          const CompressParams& cparams_orig,
+                          const FrameInfo& frame_info, const CodecMetadata* metadata,
+                          JxlEncoderChunkedFrameAdapter& frame_data,
+                          const JxlCmsInterface& cms, ThreadPool* pool,
+                          AuxOut* aux_out, std::unique_ptr<std::vector<uint8_t>>& outPutVec)
+{
+    auto cparams = cparams_orig;
+    cparams.brotli_effort=11;
+    cparams.preview = Override::kOff;
+    cparams.speed_tier = SpeedTier::kGlacier;
+    size_t bestSize{std::numeric_limits<size_t>::max()};
+    trialVecPtr bestOutput{};
+    bool tryForPatches = cparams_orig.patches != Override::kOff;//essentially to skip patches when encoding patches
+    int max_g = 3;
+    if( frame_data.xsize <= 512 && frame_data.ysize <= 512 )
+    {
+      max_g--;
+      if( frame_data.xsize <= 256 && frame_data.ysize <= 256 )
+      {
+        max_g--;
+        if( frame_data.xsize <= 128 && frame_data.ysize <= 128 )
+        {
+          max_g--;
+        }
+      }
+    }
+    if(frame_data.IsJPEG())
+    {
+      cparams.speed_tier = SpeedTier::kGlacier;
+      cparams.force_cfl_jpeg_recompression = true;
+      cparams.jpeg_compress_boxes = true;
+      cparams.jpeg_keep_exif = false;
+      cparams.jpeg_keep_xmp = false;
+      cparams.jpeg_keep_jumbf = false;
+      cparams.options.predictor = Predictor::Variable; //Usually the best. On al arge test set, other predictors rarely improved upon this by a few byts, not worth it
+      cparams.options.histogram_params.clustering = HistogramParams::ClusteringType::kBest;
+      cparams.options.histogram_params.uint_method = HistogramParams::HybridUintMethod::kBest;
+      cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kLZ77;//No real benefit so far, but it is quick, so lets leave it on
+      cparams.options.histogram_params.ans_histogram_strategy = HistogramParams::ANSHistogramStrategy::kPrecise;
+      cparams.lz77Method = HistogramParams::LZ77Method::kLZ77;
+      cparams.options.nb_repeats = 1.0f;//On 6000 jpgs, this was always better than the default
+      auto jpegDataMasterCopy = frame_data.TakeJPEGData();//JpegData is moved internally, so we copy it for each trial
+      jpegxl::progress::addStep(jpegxl::progress::step("e",static_cast<int>(SpeedTier::kTortoise)+1,static_cast<int>(SpeedTier::kGlacier),true));
+      for(int i = static_cast<int>(SpeedTier::kGlacier); i <= static_cast<int>(SpeedTier::kTortoise) ;++i) //only e 10 and e 9 seem to be worth it
+      {
+        auto trialParams = cparams;
+        trialParams.speed_tier = static_cast<SpeedTier>(i);
+        auto copiedJpegData = std::make_unique<jpeg::JPEGData>(*jpegDataMasterCopy);
+        frame_data.SetJPEGData(std::move(copiedJpegData));
+        JXL_RUN_FRAME_TRIAL("e"<<10-i);
+        //TODO some other prog advancement is leaking through to here!!!
+        jpegxl::progress::advanceCurrentProg("e");
+      }
+      jpegxl::progress::popStep("e");
+    }
+    else
+    if(cparams.IsLossless())
+    {
+      cparams.speed_tier = SpeedTier::kGlacier;
+      cparams.patches = Override::kOff;//Patches can be slow on large images, so for starter trials, we run without them
+      cparams.keep_invisible = Override::kOn;// faster and usually better than other options if png is preprocessed with png optimizer
+      cparams.options.predictor = Predictor::Variable;// almost always the best
+      cparams.options.histogram_params.clustering = HistogramParams::ClusteringType::kBest;
+      cparams.options.histogram_params.uint_method = HistogramParams::HybridUintMethod::kBest;
+      cparams.options.histogram_params.ans_histogram_strategy = HistogramParams::ANSHistogramStrategy::kPrecise;
+      cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kLZ77;//optimal is to slow with many match candidates. It would improve compression on especially syntehtic images
+      cparams.lz77Method = HistogramParams::LZ77Method::kLZ77;
+
+
+      //for our first trial, we try to determine the best group size shift, as it has a large effect on ratio
+      jpegxl::progress::addStep(jpegxl::progress::step("g",max_g,0,true));
+      for(int i = 0; i <= max_g;++i)
+      {
+        auto trialParams = cparams;
+        trialParams.speed_tier = SpeedTier::kGlacier;
+        trialParams.modular_group_size_shift = i;
+        trialParams.options.predictor = Predictor::Variable;
+        JXL_RUN_FRAME_TRIAL("g"<<i);
+        
+        if(frame_data.usesAllPal)
+        {
+          //-P 0 on low color images can sometimes make a big difference
+          trialParams.options.predictor = Predictor::Zero;
+          JXL_RUN_FRAME_TRIAL("g"<<i<<"_P0CausePal");
+        }
+        jpegxl::progress::advanceCurrentProg("g");
+      }
+      jpegxl::progress::popStep("g");
+
+      jpegxl::progress::addStep(jpegxl::progress::step("localTrees"));
+      auto trialParams = cparams;
+      trialParams.speed_tier = SpeedTier::kTortoise;//Tree learning approach is different and sometimes better than e10
+      JXL_RUN_FRAME_TRIAL("localTrees"); 
+      jpegxl::progress::popStep("localTrees");
+
+      //Patches occasionally give some improvements
+      jpegxl::progress::addStep(jpegxl::progress::step("patches"));
+      if(tryForPatches)//Only run this on non-Patch frames
+      {
+        auto trialParams = cparams;
+        trialParams.patches = Override::kOn;
+        auto ignoreStatusReturn = [&]() ->Status {JXL_RUN_FRAME_TRIAL("Patches");return true;};
+        static_cast<void>(ignoreStatusReturn());
+      }
+      jpegxl::progress::popStep("patches");
+
+      //I found the case were Zero without Patches was better than variable, but with Patches variable was better, so....
+      //This is a rare trial
+      if( cparams.patches == Override::kOn && cparams.options.predictor == Predictor::Zero)
+      {
+        jpegxl::progress::addStep(jpegxl::progress::step("patch_Z_V"));
+        auto trialParams = cparams;
+        trialParams.options.predictor = Predictor::Variable;
+        JXL_RUN_FRAME_TRIAL("patch_Z_V"); 
+        jpegxl::progress::popStep("patch_Z_V");
+      }
+
+      //If the default XPal settings caused the xpal to be used, try disabling it, somewhat effective trial
+      if(frame_data.usesXPal)
+      {
+        jpegxl::progress::addStep(jpegxl::progress::step("XPal"));
+        auto trialParams = cparams;
+        trialParams.channel_colors_percent = 0.f;
+        JXL_RUN_FRAME_TRIAL("noXPal"); 
+        jpegxl::progress::popStep("XPal");
+      }
+
+      //If the default YPal settings caused the ypal to be used, try disabling it, somewhat effective trial
+      if(frame_data.usesYPal)
+      {
+        jpegxl::progress::addStep(jpegxl::progress::step("YPal"));
+        auto trialParams = cparams;
+        trialParams.channel_colors_pre_transform_percent = 0.f;
+        JXL_RUN_FRAME_TRIAL("noYPal"); 
+        jpegxl::progress::popStep("YPal");
+
+      }
+
+      //If we used the palette mode, try without it. Rarely leads to some nice gains
+      if(frame_data.usesAllPal)
+      {
+        jpegxl::progress::addStep(jpegxl::progress::step("AllPal"));
+        auto trialParams = cparams;
+        trialParams.palette_colors = 0;
+        JXL_RUN_FRAME_TRIAL("noPal"); 
+        jpegxl::progress::popStep("AllPal");
+      }
+
+      { //This trial often improves results (but not always), but slows down further trials, so we do it late
+        jpegxl::progress::addStep(jpegxl::progress::step("I1"));
+        auto trialParams = cparams;
+        trialParams.options.nb_repeats = 1.0f;
+        JXL_RUN_FRAME_TRIAL("I1"); 
+        jpegxl::progress::popStep("I1");
+      }
+
+      /*{ //Extremely rare for improvements (basically never), but it is relatively quick to check, meh?
+        jpegxl::progress::addStep(jpegxl::progress::step("I0"));
+        auto trialParams = cparams;
+        trialParams.options.nb_repeats = 0.0f;
+        JXL_RUN_FRAME_TRIAL("I0"); 
+        jpegxl::progress::popStep("I0");
+      }*/
+
+      //If we have alpha, for the rare case were it is useful we can try cleaning invisible pixels
+      //Only slows down on images with alpha, so its worth
+      if(metadata->m.HasAlpha())
+      {
+        jpegxl::progress::addStep(jpegxl::progress::step("alpha"));
+        auto trialParams = cparams;
+        trialParams.keep_invisible = Override::kOff;
+        JXL_RUN_FRAME_TRIAL("noKeepInvisible"); 
+        jpegxl::progress::popStep("alpha");
+      }
+
+      //Predictors rarely improve things much over the variable predictor mode
+      //The enabled predictors were chosen after some testing on a reltively small but varied set of files
+      //On large images variable predictor is almost always best
+      for (Predictor pred : {
+            //Predictor::Zero,
+            //Predictor::Left,
+            //Predictor::Top,
+            //Predictor::Average0,
+            //Predictor::Select,
+            Predictor::Gradient, //very fast
+            Predictor::Weighted//a few cases worked very well with this option, also fast
+            //Predictor::TopRight,
+            //Predictor::TopLeft,
+            //Predictor::LeftLeft,
+            //Predictor::Average1,
+            //Predictor::Average2,
+            //Predictor::Average3,
+            //Predictor::Average4
+            })
+      {
+        std::string predString;
+        switch (pred)
+        {
+          case Predictor::Zero: predString="Zero";break;
+          case Predictor::Left: predString="Left";break;
+          case Predictor::Top: predString="Top";break;
+          case Predictor::Average0: predString="Average0";break;
+          case Predictor::Select: predString="Select";break;
+          case Predictor::Gradient: predString="Gradient";break;
+          case Predictor::Weighted: predString="Weighted";break;
+          case Predictor::TopRight: predString="TopRight";break;
+          case Predictor::TopLeft: predString="TopLeft";break;
+          case Predictor::LeftLeft: predString="LeftLeft";break;
+          case Predictor::Average1: predString="Average1";break;
+          case Predictor::Average2: predString="Average2";break;
+          case Predictor::Average3: predString="Average3";break;
+          case Predictor::Average4: predString="Average4";break;
+          case Predictor::Best: predString="Best";break;
+          case Predictor::Variable: predString="Variable";break;
+          default:predString="invalidPred";break;
+        }
+        jpegxl::progress::addStep(jpegxl::progress::step(predString));
+        auto trialParams = cparams;
+        if(pred == Predictor::Weighted) //Speed up the trial
+        {
+          trialParams.options.wp_tree_mode = ModularOptions::TreeMode::kWPOnly;
+        }
+        else
+        if(pred == Predictor::Gradient) //Speed up the trial
+        {
+          trialParams.options.wp_tree_mode = ModularOptions::TreeMode::kGradientOnly;
+        }
+        trialParams.options.predictor = pred;
+
+        JXL_RUN_FRAME_TRIAL(predString); 
+        jpegxl::progress::popStep(predString.c_str());
+      }
+
+      
+      /*//These are not worthwile really, so far minor effects and usually on very weird small images
+      for(HistogramParams::ClusteringType clust: {
+        HistogramParams::ClusteringType::kFastest
+        ,HistogramParams::ClusteringType::kFast
+        //,HistogramParams::ClusteringType::kBest //This is the default
+      })
+      {
+        auto trialParams = cparams;
+        trialParams.options.histogram_params.clustering = clust;
+        JXL_RUN_FRAME_TRIAL("clustering"<<static_cast<int>(clust)); 
+      }
+
+      for(HistogramParams::HybridUintMethod hybui: {
+        HistogramParams::HybridUintMethod::kNone
+        ,HistogramParams::HybridUintMethod::k000
+        ,HistogramParams::HybridUintMethod::kFast
+        ,HistogramParams::HybridUintMethod::kContextMap
+        //,HistogramParams::HybridUintMethod::kBest //this is the default
+      })
+      {
+        auto trialParams = cparams;
+        trialParams.options.histogram_params.uint_method = hybui;
+        JXL_RUN_FRAME_TRIAL("hybridUint"<<static_cast<int>(hybui));
+      }
+
+      for( HistogramParams::ANSHistogramStrategy ansh: {
+        HistogramParams::ANSHistogramStrategy::kFast
+        ,HistogramParams::ANSHistogramStrategy::kApproximate
+        //,HistogramParams::ANSHistogramStrategy::kPrecise //this is the default
+      })
+      {
+        auto trialParams = cparams;
+        trialParams.options.histogram_params.ans_histogram_strategy = ansh;
+        JXL_RUN_FRAME_TRIAL("ansHistogram"<<static_cast<int>(ansh));
+      }*/
+
+
+      if(metadata->m.color_encoding.Channels() > 1 || metadata->m.HasAlpha())
+      {
+        jpegxl::progress::addStep(jpegxl::progress::step("E"));
+        auto trialParams = cparams;
+        trialParams.options.max_properties = 6;//arbitrary, but high enough to cover three color channels + 1 alpha channel
+        JXL_RUN_FRAME_TRIAL("ExtraChannels"); 
+        jpegxl::progress::popStep("E");
+      }
+
+      /*//play with heuristic threshold
+      for(int i = 0; i < 1024; i+=16)
+      {
+        auto trialParams = cparams;
+        trialParams.options.splitting_heuristics_node_threshold = i;
+        JXL_RUN_FRAME_TRIAL("splitHeuristic"<<(i));
+      }*/
+
+     //LZ77
+     /*{//Instead of running this trial, we could just use opt always (as it include whatever lz77 does), but slowdown on some files is too large
+      //Only use this to experiment
+      jpegxl::progress::addStep(jpegxl::progress::step("lz77opt"));
+      auto trialParams = cparams;
+      trialParams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kOptimal;
+      trialParams.lz77Method = HistogramParams::LZ77Method::kOptimal;
+      JXL_RUN_FRAME_TRIAL("lz77Opt");
+      jpegxl::progress::popStep("lz77opt");
+     }*/
+    }
+    else // varDct
+    {
+      cparams.speed_tier = SpeedTier::kGlacier;
+      cparams.keep_invisible = Override::kOff;
+      cparams.options.predictor = Predictor::Variable;//Slight ratio gains, especially when we have alpha channel
+      cparams.options.histogram_params.clustering = HistogramParams::ClusteringType::kBest;
+      cparams.options.histogram_params.uint_method = HistogramParams::HybridUintMethod::kBest;
+      cparams.options.histogram_params.ans_histogram_strategy = HistogramParams::ANSHistogramStrategy::kPrecise;
+      cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kLZ77;
+      cparams.lz77Method = HistogramParams::LZ77Method::kLZ77;
+
+      if(metadata->m.HasAlpha())
+      {
+        cparams.ec_distance[0] = 1.0f;//by default, use lossy alpha
+      }
+      {
+        auto trialParams = cparams;
+        JXL_RUN_FRAME_TRIAL("lossyAlpha");
+      }
+      if(metadata->m.HasAlpha())
+      {
+        jpegxl::progress::addStep(jpegxl::progress::step("alpha"));
+        auto trialParams = cparams;
+        trialParams.keep_invisible = Override::kOn;
+        trialParams.ec_distance[0] = 0.0f; //Try 
+        JXL_RUN_FRAME_TRIAL("losslesAlphaButKeepInvis");
+        jpegxl::progress::popStep("alpha");
+      }
+    }
+
+    if(false)//yeah, intentional
+    {
+      std::cout<<"----- Best params -----"<<
+      "\nheight:"<<frame_data.xsize<<
+      "\nwidth:"<<frame_data.ysize<<
+      "\ng:"<<cparams.modular_group_size_shift<<
+      "\nP"<<static_cast<int>(cparams.options.predictor)<<
+      "\nE:"<<cparams.options.max_properties<<
+      "\nI:"<<cparams.options.nb_repeats<<
+      "\nX:"<<cparams.channel_colors_percent<<" used?="<<frame_data.usesXPal<<
+      "\nY:"<<cparams.channel_colors_pre_transform_percent<<" used?="<<frame_data.usesYPal<<
+      "\nPatches:"<<static_cast<int>(cparams.patches)<<
+      "\nkeepInvis:"<<static_cast<int>(cparams.keep_invisible)<<
+      "\npalCols:"<<cparams.palette_colors<<" used?="<<frame_data.usesAllPal<<
+      "\ntreeMode:"<<static_cast<int>(cparams.options.wp_tree_mode)<<
+      "\nspeed:"<<static_cast<int>(cparams.speed_tier)<<
+      "\nclusteringType:"<<static_cast<int>(cparams.options.histogram_params.clustering)<<
+      "\nhybridUint:"<<static_cast<int>(cparams.options.histogram_params.uint_method)<<
+      "\nnsHistogram:"<<static_cast<int>(cparams.options.histogram_params.ans_histogram_strategy)<<
+      "\nsplittingHeuristic:"<<cparams.options.splitting_heuristics_node_threshold<<
+      "\nlz77_method:"<<static_cast<int>(cparams.options.histogram_params.lz77_method)<<
+      "\n----- end -----"<<
+      std::endl;
+    }
+
+
+
+    outPutVec = std::move(bestOutput);
+    return true;
 }
 
 }  // namespace
@@ -2402,9 +2780,16 @@ Status EncodeFrame(JxlMemoryManager* memory_manager,
                    JxlEncoderOutputProcessorWrapper* output_processor,
                    AuxOut* aux_out) {
   CompressParams cparams = cparams_orig;
-  if (cparams.speed_tier == SpeedTier::kTectonicPlate &&
-      !cparams.IsLossless()) {
+  if(cparams.speed_tier == SpeedTier::kTectonicPlate)
+  {
     cparams.speed_tier = SpeedTier::kGlacier;
+    std::unique_ptr<std::vector<uint8_t>> outputVec{};
+    JXL_RETURN_IF_ERROR(EncodeFrameTrials(memory_manager, cparams,frame_info,metadata,frame_data,cms,pool,aux_out,outputVec));
+    BitWriter writer{memory_manager};
+    JXL_RETURN_IF_ERROR(writer.AppendByteAligned(Bytes(*outputVec.get())));
+    PaddedBytes frame_bytes = std::move(writer).TakeBytes();
+    JXL_RETURN_IF_ERROR(AppendData(*output_processor, frame_bytes));
+    return true;
   }
   // Lightning mode is handled externally, so switch to Thunder mode to handle
   // potentially weird cases.
@@ -2528,7 +2913,6 @@ Status EncodeFrame(JxlMemoryManager* memory_manager,
   if (frame_data.IsJPEG() && cparams.color_transform == ColorTransform::kXYB) {
     return JXL_FAILURE("Can't add JPEG frame to XYB codestream");
   }
-
   if (CanDoStreamingEncoding(cparams, frame_info, *metadata, frame_data)) {
     return EncodeFrameStreaming(memory_manager, cparams, frame_info, metadata,
                                 frame_data, cms, pool, output_processor,

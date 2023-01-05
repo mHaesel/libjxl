@@ -575,6 +575,8 @@ void PrintMode(jxl::extras::PackedPixelFile& ppf, const double decode_mps,
                jpegxl::tools::CommandLineParser& cmdline) {
   const char* mode = ModeFromArgs(args);
   const std::string distance = DistanceFromArgs(args);
+  DJxlProgressAddStep(mode,0,0,false);
+  DJxlProgressStartThread();
   if (FROM_JXL_BOOL(args.lossless_jpeg)) {
     cmdline.VerbosePrintf(1, "Read JPEG image with %" PRIuS " bytes.\n",
                           num_bytes);
@@ -1005,6 +1007,7 @@ int main(int argc, char** argv) {
   jxl::extras::PackedPixelFile ppf;
   jxl::extras::Codec codec = jxl::extras::Codec::kUnknown;
   std::vector<uint8_t> image_data;
+  if(args.quiet || (args.num_threads != 0 && args.num_threads != 1)){DJxlProgressSetQuiet();}
   std::vector<uint8_t>* jpeg_bytes = nullptr;
   size_t input_bytes = 0;
   double decode_mps = 0;
@@ -1094,6 +1097,23 @@ int main(int argc, char** argv) {
     }
   }
 
+  std::string codecString;
+  switch(codec)
+  {
+      case jxl::extras::Codec::kUnknown:
+      default:
+      codecString="Unknown";
+      break;
+      case jxl::extras::Codec::kPNG:codecString="PNG";break;
+      case jxl::extras::Codec::kJXL:codecString="JXL";break;
+      case jxl::extras::Codec::kPNM:codecString="PNM";break;
+      case jxl::extras::Codec::kPGX:codecString="PGX";break;
+      case jxl::extras::Codec::kJPG:codecString="JPG";break;
+      case jxl::extras::Codec::kGIF:codecString="GIF";break;
+      case jxl::extras::Codec::kEXR:codecString="EXR";break;
+  }
+  DJxlProgressAddStep(codecString.c_str(),0,0,false);
+
   ProcessFlags(codec, ppf, jpeg_bytes, &cmdline, &args, &params);
 
   if (!args.quiet) {
@@ -1164,10 +1184,11 @@ int main(int argc, char** argv) {
     stats.NotifyElapsed(t1 - t0);
     stats.SetImageSize(ppf.info.xsize, ppf.info.ysize);
   }
+  DJxlProgressPopStep(ModeFromArgs(args));
+  DJxlProgressPopStep(codecString.c_str());
   size_t compressed_size = args.streaming_output
                                ? output_processor.finalized_position
                                : compressed.size();
-
   if (!args.streaming_output && have_file_out && !args.disable_output) {
     if (!jpegxl::tools::WriteFile(args.file_out, compressed)) {
       std::cerr << "Could not write jxl file.\n";

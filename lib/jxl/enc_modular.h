@@ -102,8 +102,8 @@ class ModularFrameEncoder {
 
   Status PrepareStreamParams(const Rect& rect, const CompressParams& cparams,
                              int minShift, int maxShift,
-                             const ModularStreamId& stream, bool do_color,
-                             bool groupwise);
+                             const ModularStreamId& stream, bool do_color, 
+                             bool groupwise,PassesEncoderState* enc_state);
   JxlMemoryManager* memory_manager_;
   std::vector<Image> stream_images_;
   std::vector<ModularOptions> stream_options_;

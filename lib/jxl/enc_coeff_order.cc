@@ -28,6 +28,7 @@
 #include "lib/jxl/frame_dimensions.h"
 #include "lib/jxl/lehmer_code.h"
 #include "lib/jxl/memory_manager_internal.h"
+#include "lib/jxl/progress_manager.h"
 
 namespace jxl {
 
@@ -319,6 +320,7 @@ Status EncodeCoeffOrders(uint16_t used_orders,
   }
   // Do not write anything if no order is used.
   if (used_orders != 0) {
+    jpegxl::progress::addStep(jpegxl::progress::step("CoeffOrders"));
     EntropyEncodingData codes;
     JXL_ASSIGN_OR_RETURN(
         size_t cost, BuildAndEncodeHistograms(memory_manager, HistogramParams(),
@@ -327,6 +329,7 @@ Status EncodeCoeffOrders(uint16_t used_orders,
     (void)cost;
     JXL_RETURN_IF_ERROR(
         WriteTokens(tokens[0], codes, 0, writer, layer, aux_out));
+    jpegxl::progress::popStep("CoeffOrders");
   }
   return true;
 }

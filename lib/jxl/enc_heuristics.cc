@@ -62,6 +62,8 @@
 #include "lib/jxl/quant_weights.h"
 #include "lib/jxl/render_pipeline/render_pipeline.h"
 
+#include "lib/jxl/progress_manager.h"
+
 namespace jxl {
 
 struct AuxOut;
@@ -1049,22 +1051,32 @@ Status LossyFrameHeuristics(const FrameHeader& frame_header,
     if (!cparams.custom_splines.HasAny()) {
       image_features.splines = FindSplines(*opsin);
     }
+    jpegxl::progress::addStep(jpegxl::progress::step("splines"));
     JXL_RETURN_IF_ERROR(image_features.splines.InitializeDrawCache(
         opsin->xsize(), opsin->ysize(), cmap.base()));
     image_features.splines.SubtractFrom(opsin);
+    jpegxl::progress::popStep("splines");
   }
 
   // Find and subtract patches/dots.
   if (!streaming_mode &&
       ApplyOverride(cparams.patches,
                     cparams.speed_tier <= SpeedTier::kSquirrel)) {
+    jpegxl::progress::addStep(jpegxl::progress::step("patch"));
     JXL_RETURN_IF_ERROR(
         FindBestPatchDictionary(*opsin, enc_state, cms, pool, aux_out));
     JXL_RETURN_IF_ERROR(
         PatchDictionaryEncoder::SubtractFrom(image_features.patches, opsin));
+    jpegxl::progress::popStep("patch");
+    if(cparams.patches == Override::kOn && !shared.image_features.patches.HasAny())
+    {
+      return JXL_FAILURE("Tried for Patches, but we do not have any, so SKIP"); //Dirty stuff, wont work with normal forced patches anymore, but meh..
+    }
   }
 
+  jpegxl::progress::addStep(jpegxl::progress::step("globalScaleAndQuant"));
   const float quant_dc = InitialQuantDC(cparams.butteraugli_distance);
+  jpegxl::progress::popStep("globalScaleAndQuant");
 
   // TODO(veluca): we can now run all the code from here to FindBestQuantizer
   // (excluded) one rect at a time. Do that.
@@ -1087,6 +1099,7 @@ Status LossyFrameHeuristics(const FrameHeader& frame_header,
 
   AcStrategyHeuristics acs_heuristics(memory_manager, cparams);
   CfLHeuristics cfl_heuristics(memory_manager);
+  jpegxl::progress::addStep(jpegxl::progress::step("initialQuantF"));
   ImageF initial_quant_field;
   ImageF initial_quant_masking;
 
@@ -1127,12 +1140,12 @@ Status LossyFrameHeuristics(const FrameHeader& frame_header,
     float q = 0.39 / cparams.butteraugli_distance;
     quantizer.ComputeGlobalScaleAndQuant(quant_dc, q, 0);
   }
-
+  jpegxl::progress::popStep("initialQuantF");
   // TODO(veluca): do something about animations.
 
   // Apply inverse-gaborish.
   if (frame_header.loop_filter.gab) {
-    // Changing the weight here to 0.99f would help to reduce ringing in
+    jpegxl::progress::addStep(jpegxl::progress::step("inversegaborish"));
     // generation loss.
     float weight[3] = {
         1.0f,
@@ -1140,20 +1153,33 @@ Status LossyFrameHeuristics(const FrameHeader& frame_header,
         1.0f,
     };
     JXL_RETURN_IF_ERROR(GaborishInverse(opsin, rect, weight, pool));
+    jpegxl::progress::popStep("inversegaborish");
   }
-
+  jpegxl::progress::addStep(jpegxl::progress::step("FindBestDequant"));
   if (initialize_global_state) {
     JXL_RETURN_IF_ERROR(FindBestDequantMatrices(
         memory_manager, cparams, modular_frame_encoder, &matrices));
   }
+  jpegxl::progress::popStep("FindBestDequant");
 
   JXL_RETURN_IF_ERROR(cfl_heuristics.Init(rect));
+  jpegxl::progress::addStep(jpegxl::progress::step("cfl+acs",DivCeil(enc_state->shared.frame_dim.xsize_blocks, kEncTileDimInBlocks) *
+          DivCeil(enc_state->shared.frame_dim.ysize_blocks,
+                  kEncTileDimInBlocks),0,true));
   JXL_RETURN_IF_ERROR(acs_heuristics.Init(*opsin, rect, initial_quant_field,
                                           initial_quant_masking,
                                           initial_quant_masking1x1, &matrices));
-
+  std::chrono::time_point<std::chrono::high_resolution_clock> lastProgPrint;
   auto process_tile = [&](const uint32_t tid, const size_t thread) -> Status {
     size_t n_enc_tiles = DivCeil(frame_dim.xsize_blocks, kEncTileDimInBlocks);
+    if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 100)
+    {
+      jpegxl::progress::advanceCurrentProg("cfl+acs");
+      lastProgPrint = std::chrono::high_resolution_clock::now();
+    }
+    else{
+      jpegxl::progress::advanceCurrentProg("cfl+acs",1,false);
+    }
     size_t tx = tid % n_enc_tiles;
     size_t ty = tid / n_enc_tiles;
     size_t by0 = ty * kEncTileDimInBlocks;
@@ -1203,9 +1229,13 @@ Status LossyFrameHeuristics(const FrameHeader& frame_header,
   };
   JXL_RETURN_IF_ERROR(
       RunOnPool(pool, 0, num_tiles, prepare, process_tile, "Enc Heuristics"));
-
+  jpegxl::progress::advanceCurrentProg("cfl+acs",0);
   JXL_RETURN_IF_ERROR(acs_heuristics.Finalize(frame_dim, ac_strategy, aux_out));
+  jpegxl::progress::popStep("cfl+acs");
+    jpegxl::progress::addStep(jpegxl::progress::step("computeDC"));
+    jpegxl::progress::popStep("computeDC");
 
+  jpegxl::progress::addStep(jpegxl::progress::step("bestQuant"));
   // Refine quantization levels.
   if (!streaming_mode && !cparams.disable_perceptual_optimizations) {
     ImageB& epf_sharpness = shared.epf_sharpness;
@@ -1214,11 +1244,14 @@ Status LossyFrameHeuristics(const FrameHeader& frame_header,
                                           initial_quant_field, enc_state, cms,
                                           pool, aux_out));
   }
+  jpegxl::progress::popStep("bestQuant");
 
   // Choose a context model that depends on the amount of quantization for AC.
   if (cparams.speed_tier < SpeedTier::kFalcon && initialize_global_state) {
     FindBestBlockEntropyModel(cparams, raw_quant_field, ac_strategy,
                               &block_ctx_map);
+    jpegxl::progress::addStep(jpegxl::progress::step("bestNlockEntropy"));
+    jpegxl::progress::popStep("bestNlockEntropy");
   }
   return true;
 }

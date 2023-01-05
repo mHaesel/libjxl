@@ -39,6 +39,8 @@
 #include "lib/jxl/modular/options.h"
 #include "lib/jxl/simd_util.h"
 
+#include "lib/jxl/progress_manager.h"
+
 namespace jxl {
 
 namespace {
@@ -1026,6 +1028,53 @@ void EncodeUintConfig(const HybridUintConfig uint_config, Writer* writer,
                 uint_config.split_exponent);
   if (uint_config.split_exponent == log_alpha_size) {
     return;  // msb/lsb don't matter.
+    //jpegxl::progress::addStep(jpegxl::progress::step("match",0,0,true));
+      //jpegxl::progress::advanceCurrentProg();
+    //jpegxl::progress::popStep("match");
+  jpegxl::progress::addStep(jpegxl::progress::step("LZ77",tokens.size(),0,true));
+    jpegxl::progress::advanceCurrentProg("LZ77");
+    jpegxl::progress::addStep(jpegxl::progress::step("",in.size(),0,true));
+    std::chrono::time_point<std::chrono::high_resolution_clock> lastProgPrint;
+      if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 200)
+      {
+        jpegxl::progress::advanceCurrentProg("");
+        lastProgPrint = std::chrono::high_resolution_clock::now();
+      }
+      else{
+        jpegxl::progress::advanceCurrentProg("",1,false);
+      }
+            if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 200)
+            {
+              jpegxl::progress::advanceCurrentProg("");
+              lastProgPrint = std::chrono::high_resolution_clock::now();
+            }
+            else{
+              jpegxl::progress::advanceCurrentProg("",1,false);
+            }
+        if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 200)
+        {
+          jpegxl::progress::advanceCurrentProg("",len - 1);
+          lastProgPrint = std::chrono::high_resolution_clock::now();
+        }
+        else{
+          jpegxl::progress::advanceCurrentProg("",len - 1,false);
+        }
+    jpegxl::progress::popStep("");
+  jpegxl::progress::popStep("LZ77");
+  jpegxl::progress::addStep(jpegxl::progress::step("LZ77Optimal",tokens.size(),0,true));
+    jpegxl::progress::advanceCurrentProg("LZ77Optimal");
+    std::chrono::time_point<std::chrono::high_resolution_clock> lastProgPrint;
+    jpegxl::progress::addStep(jpegxl::progress::step("",in.size(),0,true));
+      if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 200)
+      {
+        jpegxl::progress::advanceCurrentProg("");
+        lastProgPrint = std::chrono::high_resolution_clock::now();
+      }
+      else{
+        jpegxl::progress::advanceCurrentProg("",1,false);
+      }
+    jpegxl::progress::popStep("chain");
+  jpegxl::progress::popStep("opt");
   }
   size_t nbits = CeilLog2Nonzero(uint_config.split_exponent + 1);
   writer->Write(nbits, uint_config.msb_in_token);
@@ -1358,16 +1407,25 @@ HistogramParams HistogramParams::ForModular(
             : HistogramParams::LZ77Method::kNone;
     // Near-lossless DC, as well as modular mode, require choosing hybrid uint
     // more carefully.
+    if(cparams.speed_tier  == SpeedTier::kSquirrel && cparams.modular_mode)
+    {
+      params.lz77_method = HistogramParams::LZ77Method::kLZ77;
+    }
     if ((!extra_dc_precision.empty() && extra_dc_precision[0] != 0) ||
         (cparams.modular_mode && cparams.speed_tier < SpeedTier::kCheetah)) {
       params.uint_method = HistogramParams::HybridUintMethod::kFast;
     } else {
       params.uint_method = HistogramParams::HybridUintMethod::kNone;
     }
-  } else if (cparams.speed_tier <= SpeedTier::kTortoise) {
-    params.lz77_method = HistogramParams::LZ77Method::kOptimal;
+  } else if ((cparams.speed_tier == SpeedTier::kTortoise) || (cparams.speed_tier == SpeedTier::kGlacier)) {
+    //params.lz77_method = HistogramParams::LZ77Method::kLZ77;
+    params.lz77_method = cparams.lz77Method;
+    params.clustering = ClusteringType::kBest;
+    params.uint_method = HybridUintMethod::kBest;
+    params.ans_histogram_strategy = ANSHistogramStrategy::kPrecise;
   } else {
-    params.lz77_method = HistogramParams::LZ77Method::kLZ77;
+    //params.lz77_method = HistogramParams::LZ77Method::kLZ77;
+    params.lz77_method = cparams.lz77Method;
   }
   if (cparams.decoding_speed_tier >= 2) {
     params.max_histograms = 12;
