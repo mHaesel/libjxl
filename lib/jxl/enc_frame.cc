@@ -13,6 +13,7 @@
 #include <atomic>
 #include <cmath>
 #include <limits>
+#include <mutex>
 #include <numeric>
 #include <vector>
 
@@ -66,6 +67,9 @@
 #include "lib/jxl/quantizer.h"
 #include "lib/jxl/splines.h"
 #include "lib/jxl/toc.h"
+
+#include <chrono>
+#include <iostream>
 
 namespace jxl {
 namespace {
@@ -1194,38 +1198,88 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     cparams.speed_tier = SpeedTier::kTortoise;
   }
   if (cparams.speed_tier == SpeedTier::kGlacier) {
+    std::cout<<"-------------------Frame Start--------------------------"<<std::endl;
     std::vector<CompressParams> all_params;
-    std::vector<size_t> size;
+    std::mutex m;
+    size_t bestSize{std::numeric_limits<size_t>::max()};
+    bool usesPatches{false};
+    size_t bestTask{0};
+
+    //only try group sizes based on the dimension of the frame
+    //(0=128, 1=256, 2=512, 3=1024)
+    int max_g = 3;
+    if( ib.xsize() <= 512 && ib.ysize() <= 512 )
+    {
+      max_g--;
+      if( ib.xsize() <= 256 && ib.ysize() <= 256 )
+      {
+        max_g--;
+        if( ib.xsize() <= 128 && ib.ysize() <= 128 )
+        {
+          max_g--;
+        }
+      }
+    }
+    
+    bool skip_pre_compact = metadata != nullptr && metadata->m.bit_depth.bits_per_sample > 8;
 
     CompressParams cparams_attempt = cparams_orig;
-    cparams_attempt.speed_tier = SpeedTier::kTortoise;
-    cparams_attempt.options.max_properties = 4;
+    if(ib.IsJPEG())
+    {
+      for (SpeedTier e : {SpeedTier::kTortoise,SpeedTier::kCheetah,SpeedTier::kFalcon,SpeedTier::kHare,SpeedTier::kKitten,SpeedTier::kLightning,SpeedTier::kSquirrel,SpeedTier::kThunder})
+      {
+        cparams_attempt.speed_tier = e;
+        cparams_attempt.options.nb_repeats = 1.0f;
+        cparams_attempt.options.max_properties = 4;
+        all_params.push_back(cparams_attempt);
+      }
+    }else if (!cparams.IsLossless())
+    {
+      cparams_attempt.speed_tier = SpeedTier::kTortoise;
+      all_params.push_back(cparams_attempt);
+    } else
+    {
+      cparams_attempt.speed_tier = SpeedTier::kTortoise;
+      cparams_attempt.options.max_properties = 4;
+      cparams_attempt.patches = Override::kOn;//patches could be slow, lets try them at the end
+      cparams_attempt.options.nb_repeats = 0.5f;
+      //we do not do pal_trials for now, if we want to do them, we should base them on the number of colors in the frame (ie only try 1024 pal, if num_cols is smaller equal to 1024)
+      //so, we would always absically have the choice of no pal, the default max of 1024 and a number equal to the cols in the image or larger.
+      //TODO check difference between pal with exact amount of colors in the image and pal,that only partial or larger, who knows what could happen
 
-    for (float x : {0.0f, 80.f}) {
-      cparams_attempt.channel_colors_percent = x;
-      for (float y : {0.0f, 95.0f}) {
-        cparams_attempt.channel_colors_pre_transform_percent = y;
-        // 70000 ensures that the number of palette colors is representable in
-        // modular headers.
-        for (int K : {0, 1 << 10, 70000}) {
-          cparams_attempt.palette_colors = K;
-          for (int tree_mode : {-1, (int)ModularOptions::TreeMode::kNoWP,
-                                (int)ModularOptions::TreeMode::kDefault}) {
-            if (tree_mode == -1) {
-              // LZ77 only
-              cparams_attempt.options.nb_repeats = 0;
-            } else {
-              cparams_attempt.options.nb_repeats = 1;
-              cparams_attempt.options.wp_tree_mode =
-                  static_cast<ModularOptions::TreeMode>(tree_mode);
-            }
-            for (Predictor pred : {Predictor::Zero, Predictor::Variable}) {
-              cparams_attempt.options.predictor = pred;
-              for (int g : {0, 1, 3}) {
-                cparams_attempt.modular_group_size_shift = g;
-                for (Override patches : {Override::kDefault, Override::kOff}) {
-                  cparams_attempt.patches = patches;
-                  all_params.push_back(cparams_attempt);
+      //X is used per channel to try a local channel pal. The default value is ok as a high point, but trying without it is also worth it
+      //Theoretically we could try the transform per channel (I think), in which case we would go for 0.f and 100.f as trials. does that make sense?
+      //-E >0 (properties) can sometimes worsen ratio slightly, but thats ok, it helps almost always
+      if(max_g >= 3)
+      {
+        for (int g=0; g <= max_g; ++g ) {
+          cparams_attempt.modular_group_size_shift = g;
+          all_params.push_back(cparams_attempt);
+      }
+      } else {//If the image is smaller, lets try some more accurate stuff because it is not as slow
+        for (float x : {0.0f, 80.f}) {
+          cparams_attempt.channel_colors_percent = x;
+          for (float y : {0.0f, 95.0f}) {
+        if (skip_pre_compact){break;}
+            cparams_attempt.channel_colors_pre_transform_percent = y;
+            for (int K : {0, 1 << 10}) {
+              cparams_attempt.palette_colors = K;
+              for (int tree_mode : {-1, (int)ModularOptions::TreeMode::kNoWP,
+                                    (int)ModularOptions::TreeMode::kDefault}) {
+                if (tree_mode == -1) {
+                  // LZ77 only
+                  cparams_attempt.options.nb_repeats = 0;
+                } else {
+                  cparams_attempt.options.nb_repeats = 0.5f;
+                  cparams_attempt.options.wp_tree_mode =
+                      static_cast<ModularOptions::TreeMode>(tree_mode);
+                }
+                for (Predictor pred : {Predictor::Zero, Predictor::Variable}) {
+                  cparams_attempt.options.predictor = pred;
+                  for (int g=0; g <= max_g; ++g ) {
+                    cparams_attempt.modular_group_size_shift = g;
+                    all_params.push_back(cparams_attempt);
+                  }
                 }
               }
             }
@@ -1233,35 +1287,68 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         }
       }
     }
+      std::atomic<int> num_errors{0};
+      std::atomic<int> stepCount{0};
+      JXL_RETURN_IF_ERROR(RunOnPool(
+          pool, 0, all_params.size(), ThreadPool::NoInit,
+          [&](size_t task, size_t) {
+            BitWriter w;
+            PassesEncoderState state;
+            std::chrono::steady_clock::time_point startTime;
+            std::chrono::steady_clock::time_point stopTime;
+            int stepThis = stepCount;
+            ++stepCount;
+            std::cout<<"Encoding Step "<<stepThis<<std::endl;
+            startTime = std::chrono::steady_clock::now();
+            if (!EncodeFrame(all_params[task], frame_info, metadata, ib, &state,
+                            cms, nullptr, &w, aux_out)) {
+              num_errors.fetch_add(1, std::memory_order_relaxed);
+              std::cout<<"error on Step"<<stepThis<<std::endl;
+              return;
+            }
+            stopTime=std::chrono::steady_clock::now();
+            auto Duration = std::chrono::duration_cast<std::chrono::milliseconds>(stopTime-startTime);
+            std::cout.imbue(std::locale(""));
+            std::cout<<"Encoding Step "<<stepThis<<" finished after "<<Duration.count()<<" milliseconds"<<std::endl<<"Params were: g="<<all_params[task].modular_group_size_shift<<";e="<<static_cast<int>(all_params[bestTask].speed_tier)<<";X="<<all_params[task].channel_colors_percent<<";Y="<<all_params[task].channel_colors_pre_transform_percent<<";pal cols="<<all_params[task].palette_colors<<";nb_repeats="<<all_params[task].options.nb_repeats<<";predictor="<<static_cast<int>(all_params[task].options.predictor)<<";wp_tree_mode="<<static_cast<int>(all_params[task].options.wp_tree_mode)<<";patches="<<static_cast<int>(all_params[task].patches)<<std::endl<<"Size was "<<w.BitsWritten()<<" bits"<<std::endl;
+            std::lock_guard<std::mutex> lock(m);
+            if(w.BitsWritten() < bestSize)
+            {
+              bestSize = w.BitsWritten();
+              usesPatches = state.shared.image_features.patches.HasAny();
+              bestTask = task;
+            }
+          },
+          "Compress kGlacier"));
+      JXL_RETURN_IF_ERROR(num_errors.load(std::memory_order_relaxed) == 0);
 
-    size.resize(all_params.size());
-
-    std::atomic<int> num_errors{0};
-
-    JXL_RETURN_IF_ERROR(RunOnPool(
-        pool, 0, all_params.size(), ThreadPool::NoInit,
-        [&](size_t task, size_t) {
-          BitWriter w;
-          PassesEncoderState state;
-          if (!EncodeFrame(all_params[task], frame_info, metadata, ib, &state,
-                           cms, nullptr, &w, aux_out)) {
-            num_errors.fetch_add(1, std::memory_order_relaxed);
-            return;
-          }
-          size[task] = w.BitsWritten();
-        },
-        "Compress kGlacier"));
-    JXL_RETURN_IF_ERROR(num_errors.load(std::memory_order_relaxed) == 0);
-
-    size_t best_idx = 0;
-    for (size_t i = 1; i < all_params.size(); i++) {
-      if (size[best_idx] > size[i]) {
-        best_idx = i;
+      std::cout<<"Best Task = "<<bestTask<<std::endl;
+      std::cout<<"Best Task bits = "<<bestSize<<std::endl;
+      std::cout<<"Best Params = "<<"g="<<all_params[bestTask].modular_group_size_shift<<";e="<<static_cast<int>(all_params[bestTask].speed_tier)<<";X="<<all_params[bestTask].channel_colors_percent<<";Y="<<all_params[bestTask].channel_colors_pre_transform_percent<<";pal cols="<<all_params[bestTask].palette_colors<<";nb_repeats="<<all_params[bestTask].options.nb_repeats<<";predictor="<<static_cast<int>(all_params[bestTask].options.predictor)<<";wp_tree_mode="<<static_cast<int>(all_params[bestTask].options.wp_tree_mode)<<";patches="<<static_cast<int>(all_params[bestTask].patches)<<std::endl<<std::endl;
+      cparams = all_params[bestTask];
+      //now do some more silly single trials, like patches n shit
+      if(usesPatches)
+      {
+        std::cout<<"Patches were used in the best result, try encoding without them"<<std::endl;
+        cparams_attempt = cparams;
+        cparams_attempt.patches = Override::kOff;
+        BitWriter w;
+        PassesEncoderState state;
+        JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
+                                        cms, pool, &w, aux_out));
+        if (w.BitsWritten() < bestTask) {
+          std::cout<<"Not using Patches was better :  "<<w.BitsWritten() <<" bits"<<std::endl;
+          cparams.patches = Override::kDefault;
+        }
+        else
+        {
+          std::cout<<"Keep using Patches, it is smaller. "<<std::endl;
+        }
       }
-    }
-    cparams = all_params[best_idx];
+      else
+      {
+        std::cout<<"No Patches found, no need to try disabling them"<<std::endl;
+      }
   }
-
   if (cparams_orig.target_bitrate > 0.0f &&
       frame_info.frame_type == FrameType::kRegularFrame) {
     cparams.target_bitrate = 0.0f;
