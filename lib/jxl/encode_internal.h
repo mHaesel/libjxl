@@ -275,6 +275,12 @@ class JxlEncoderChunkedFrameAdapter {
   const size_t xsize;
   const size_t ysize;
 
+  //hacky way to pass some information
+  bool usesAllPal = false;
+  bool usesXPal = false;
+  bool usesYPal = false;
+
+
  private:
   void GetColorChannelsPixelFormat(JxlPixelFormat* pixel_format) {
     *pixel_format = channels_[0].format_;

@@ -38,6 +38,8 @@
 #include "lib/jxl/pack_signed.h"
 #include "lib/jxl/patch_dictionary_internal.h"
 
+#include "lib/jxl/progress_manager.h"
+
 namespace jxl {
 
 static constexpr size_t kPatchFrameReferenceId = 3;
@@ -266,6 +268,7 @@ StatusOr<std::vector<PatchInfo>> FindTextLikePatches(
   constexpr int64_t kPatchSide = 4;
   constexpr int64_t kExtraSide = 4;
 
+  //jpegxl::progress::addStep(jpegxl::progress::step("search",opsin.xsize() / kPatchSide,0,true));
   // Look for kPatchSide size squares, naturally aligned, that all have the same
   // pixel values.
   JXL_ASSIGN_OR_RETURN(
@@ -278,6 +281,7 @@ StatusOr<std::vector<PatchInfo>> FindTextLikePatches(
   const auto process_row = [&](const uint32_t y,
                                size_t /* thread */) -> Status {
     for (uint64_t x = 0; x < frame_dim.xsize / kPatchSide; x++) {
+    //jpegxl::progress::advanceCurrentProg();
       bool all_same = true;
       for (size_t iy = 0; iy < static_cast<size_t>(kPatchSide); iy++) {
         for (size_t ix = 0; ix < static_cast<size_t>(kPatchSide); ix++) {
@@ -314,6 +318,7 @@ StatusOr<std::vector<PatchInfo>> FindTextLikePatches(
   JXL_RETURN_IF_ERROR(RunOnPool(pool, 0, frame_dim.ysize / kPatchSide,
                                 ThreadPool::NoInit, process_row,
                                 "IsScreenshotLike"));
+  //jpegxl::progress::popStep("search");
 
   // TODO(veluca): also parallelize the rest of this function.
   if (WantDebugOutput(cparams)) {
@@ -828,6 +833,9 @@ Status RoundtripPatchFrame(Image3F* reference_frame,
   }
   auto special_frame = jxl::make_unique<BitWriter>(memory_manager);
   AuxOut patch_aux_out;
+  //Les do some very slow Patches.. :)
+  cparams.options.predictor = Predictor::Variable;
+  cparams.speed_tier = SpeedTier::kGlacier;
   JXL_RETURN_IF_ERROR(EncodeFrame(
       memory_manager, cparams, patch_frame_info, state->shared.metadata, ib,
       cms, pool, special_frame.get(), aux_out ? &patch_aux_out : nullptr));
