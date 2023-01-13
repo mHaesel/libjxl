@@ -68,7 +68,7 @@ class ModularFrameEncoder {
                          AuxOut* aux_out = nullptr);
   Status PrepareStreamParams(const Rect& rect, const CompressParams& cparams,
                              int minShift, int maxShift,
-                             const ModularStreamId& stream, bool do_color);
+                             const ModularStreamId& stream, bool do_color, PassesEncoderState* enc_state);
   std::vector<Image> stream_images_;
   std::vector<ModularOptions> stream_options_;
 

@@ -28,6 +28,9 @@ struct ImageFeatures {
   NoiseParams noise_params;
   PatchDictionary patches;
   Splines splines;
+  bool usesAllChannelPal = false;//lazy crutch bools
+  bool usesXPal = false;
+  bool usesYPal = false;
 };
 
 // State common to both encoder and decoder.

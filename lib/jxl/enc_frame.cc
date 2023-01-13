@@ -1084,6 +1084,9 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     std::mutex m;
     size_t bestSize{std::numeric_limits<size_t>::max()};
     bool usesPatches{false};
+    bool usesAllPal{false};
+    bool usesXPal{false};
+    bool usesYPal{false};
     size_t bestTask{0};
 
     //only try group sizes based on the dimension of the frame
@@ -1101,8 +1104,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         }
       }
     }
-    
-    bool skip_pre_compact = metadata != nullptr && metadata->m.bit_depth.bits_per_sample > 8;
 
     CompressParams cparams_attempt = cparams_orig;
     if(ib.IsJPEG())
@@ -1138,31 +1139,21 @@ Status EncodeFrame(const CompressParams& cparams_orig,
           all_params.push_back(cparams_attempt);
       }
       } else {//If the image is smaller, lets try some more accurate stuff because it is not as slow
-        for (float x : {0.0f, 80.f}) {
-          cparams_attempt.channel_colors_percent = x;
-          for (float y : {0.0f, 95.0f}) {
-        if (skip_pre_compact){break;}
-            cparams_attempt.channel_colors_pre_transform_percent = y;
-            for (int K : {0, 1 << 10}) {
-              cparams_attempt.palette_colors = K;
-              for (int tree_mode : {-1, (int)ModularOptions::TreeMode::kNoWP,
-                                    (int)ModularOptions::TreeMode::kDefault}) {
-                if (tree_mode == -1) {
-                  // LZ77 only
-                  cparams_attempt.options.nb_repeats = 0;
-                } else {
-                  cparams_attempt.options.nb_repeats = 0.5f;
-                  cparams_attempt.options.wp_tree_mode =
-                      static_cast<ModularOptions::TreeMode>(tree_mode);
-                }
-                for (Predictor pred : {Predictor::Zero, Predictor::Variable}) {
-                  cparams_attempt.options.predictor = pred;
-                  for (int g=0; g <= max_g; ++g ) {
-                    cparams_attempt.modular_group_size_shift = g;
-                    all_params.push_back(cparams_attempt);
-                  }
-                }
-              }
+        for (int tree_mode : {-1, (int)ModularOptions::TreeMode::kNoWP,
+                              (int)ModularOptions::TreeMode::kDefault}) {
+          if (tree_mode == -1) {
+            // LZ77 only
+            cparams_attempt.options.nb_repeats = 0;
+          } else {
+            cparams_attempt.options.nb_repeats = 0.5f;
+            cparams_attempt.options.wp_tree_mode =
+                static_cast<ModularOptions::TreeMode>(tree_mode);
+          }
+          for (Predictor pred : {Predictor::Zero, Predictor::Variable}) {
+            cparams_attempt.options.predictor = pred;
+            for (int g=0; g <= max_g; ++g ) {
+              cparams_attempt.modular_group_size_shift = g;
+              all_params.push_back(cparams_attempt);
             }
           }
         }
@@ -1196,6 +1187,9 @@ Status EncodeFrame(const CompressParams& cparams_orig,
             {
               bestSize = w.BitsWritten();
               usesPatches = state.shared.image_features.patches.HasAny();
+              usesAllPal = state.shared.image_features.usesAllChannelPal;
+              usesXPal = state.shared.image_features.usesXPal;
+              usesYPal = state.shared.image_features.usesYPal;
               bestTask = task;
             }
           },
@@ -1216,18 +1210,102 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         PassesEncoderState state;
         JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
                                         cms, pool, &w, aux_out));
-        if (w.BitsWritten() < bestTask) {
+        if (w.BitsWritten() < bestSize) {
+          bestSize = w.BitsWritten();
           std::cout<<"Not using Patches was better :  "<<w.BitsWritten() <<" bits"<<std::endl;
-          cparams.patches = Override::kDefault;
+          cparams.patches = Override::kOff;
+          usesAllPal = state.shared.image_features.usesAllChannelPal;
+          usesXPal = state.shared.image_features.usesXPal;
+          usesYPal = state.shared.image_features.usesYPal;
         }
         else
         {
-          std::cout<<"Keep using Patches, it is smaller. "<<std::endl;
+          std::cout<<"Keep using Patches, without them we were at "<<w.BitsWritten() <<" bits"<<std::endl;
         }
       }
       else
       {
-        std::cout<<"No Patches found, no need to try disabling them"<<std::endl;
+        std::cout<<"No Patches used"<<std::endl;
+      }
+      //pal stuff
+      if(usesXPal)
+      {
+        std::cout<<"channel_colors_percent (-X) was used, try encoding without it"<<std::endl;
+        cparams_attempt = cparams;
+        cparams_attempt.channel_colors_percent = 0.f;
+        BitWriter w;
+        PassesEncoderState state;
+        JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
+                                        cms, pool, &w, aux_out));
+        if (w.BitsWritten() < bestSize) {
+          bestSize = w.BitsWritten();
+          std::cout<<"Not -X was better :  "<<w.BitsWritten() <<" bits"<<std::endl;
+          cparams.channel_colors_percent = 0.f;
+          usesAllPal = state.shared.image_features.usesAllChannelPal;
+          usesXPal = state.shared.image_features.usesXPal;
+          usesYPal = state.shared.image_features.usesYPal;
+        }
+        else
+        {
+          std::cout<<"Keep using -X, without them we were at "<<w.BitsWritten() <<" bits"<<std::endl;
+        }
+      }
+      else
+      {
+        std::cout<<"channel_colors_percent (-X) was not used"<<std::endl;
+      }
+      if(usesYPal)
+      {
+        std::cout<<"channel_colors_pre_transform_percent (-Y) was used, try encoding without it"<<std::endl;
+        cparams_attempt = cparams;
+        cparams_attempt.channel_colors_pre_transform_percent = 0.f;
+        BitWriter w;
+        PassesEncoderState state;
+        JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
+                                        cms, pool, &w, aux_out));
+        if (w.BitsWritten() < bestSize) {
+          bestSize = w.BitsWritten();
+          std::cout<<"Not -Y was better :  "<<w.BitsWritten() <<" bits"<<std::endl;
+          cparams.channel_colors_pre_transform_percent = 0.f;
+          usesAllPal = state.shared.image_features.usesAllChannelPal;
+          usesXPal = state.shared.image_features.usesXPal;
+          usesYPal = state.shared.image_features.usesYPal;
+        }
+        else
+        {
+          std::cout<<"Keep using -Y, without them we were at "<<w.BitsWritten() <<" bits"<<std::endl;
+        }
+      }
+      else
+      {
+        std::cout<<"channel_colors_pre_transform_percent (-Y) was not used"<<std::endl;
+      }
+      if(usesAllPal)
+      {
+        //The logic is, if we only have the above kinds of pals (is that possible?) without all_pal, we dont need duplicate trials
+        std::cout<<"An All_Palette Transform was used, try encoding without it (implicitly disabling -X and -Y)"<<std::endl;
+        cparams_attempt = cparams;
+        cparams_attempt.palette_colors = 0;
+        BitWriter w;
+        PassesEncoderState state;
+        JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
+                                        cms, pool, &w, aux_out));
+        if (w.BitsWritten() < bestSize) {
+          bestSize = w.BitsWritten();
+          std::cout<<"No Palette was better :  "<<w.BitsWritten() <<" bits"<<std::endl;
+          cparams.palette_colors = 0;
+          usesAllPal = state.shared.image_features.usesAllChannelPal;
+          usesXPal = state.shared.image_features.usesXPal;
+          usesYPal = state.shared.image_features.usesYPal;
+        }
+        else
+        {
+          std::cout<<"Keep using Palette, without it we were at "<<w.BitsWritten() <<" bits"<<std::endl;
+        }
+      }
+      else
+      {
+        std::cout<<"All_Palette was not used"<<std::endl;
       }
   }
   ib.VerifyMetadata();
