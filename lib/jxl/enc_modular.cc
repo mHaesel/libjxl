@@ -670,6 +670,8 @@ Status ModularFrameEncoder::ComputeEncodingData(
                    std::abs(cparams_.palette_colors) / 16);
       maybe_palette.ordered_palette = cparams_.palette_colors >= 0;
       maybe_palette.lossy_palette = false;
+      enc_state->shared.image_features.usesAllChannelPal = 
+      enc_state->shared.image_features.usesAllChannelPal || 
       do_transform(gi, maybe_palette, weighted::Header(), pool);
     }
   }
@@ -699,6 +701,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
           (int)(xsize * ysize / 16),
           (int)(cparams_.channel_colors_pre_transform_percent / 100. * colors));
       if (do_transform(gi, maybe_palette_1, weighted::Header(), pool)) {
+        enc_state->shared.image_features.usesYPal = true;
         // effective bit depth is lower, adjust quantization accordingly
         compute_minmax(gi.channel[gi.nb_meta_channels + i], &min, &max);
         if (max < maxval) maxval = max;
@@ -728,7 +731,8 @@ Status ModularFrameEncoder::ComputeEncodingData(
       }
       // TODO(veluca): use a custom weighted header if using the weighted
       // predictor.
-      do_transform(gi, maybe_palette, weighted::Header(), pool,
+      enc_state->shared.image_features.usesAllChannelPal = 
+      enc_state->shared.image_features.usesAllChannelPal || do_transform(gi, maybe_palette, weighted::Header(), pool,
                    cparams_.options.zero_tokens);
     }
     // all-minus-one-channel palette (RGB with separate alpha, or CMY with
@@ -744,7 +748,8 @@ Status ModularFrameEncoder::ComputeEncodingData(
       if (maybe_palette_3.lossy_palette) {
         maybe_palette_3.predictor = delta_pred_;
       }
-      do_transform(gi, maybe_palette_3, weighted::Header(), pool,
+      enc_state->shared.image_features.usesAllChannelPal = 
+      enc_state->shared.image_features.usesAllChannelPal || do_transform(gi, maybe_palette_3, weighted::Header(), pool,
                    cparams_.options.zero_tokens);
     }
   }
@@ -898,7 +903,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
         stream_options_[stream_params[i].id.ID(frame_dim_)] = cparams_.options;
         JXL_CHECK(PrepareStreamParams(
             stream_params[i].rect, cparams_, stream_params[i].minShift,
-            stream_params[i].maxShift, stream_params[i].id, do_color));
+            stream_params[i].maxShift, stream_params[i].id, do_color, enc_state));
       },
       "ChooseParams"));
   {
@@ -1310,7 +1315,7 @@ Status ModularFrameEncoder::PrepareStreamParams(const Rect& rect,
                                                 const CompressParams& cparams_,
                                                 int minShift, int maxShift,
                                                 const ModularStreamId& stream,
-                                                bool do_color) {
+                                                bool do_color, PassesEncoderState* enc_state) {
   size_t stream_id = stream.ID(frame_dim_);
   Image& full_image = stream_images_[0];
   const size_t xsize = rect.xsize();
@@ -1358,6 +1363,8 @@ Status ModularFrameEncoder::PrepareStreamParams(const Rect& rect,
         maybe_palette.num_c = gi.channel.size() - gi.nb_meta_channels;
         maybe_palette.nb_colors = std::abs(cparams_.palette_colors);
         maybe_palette.ordered_palette = cparams_.palette_colors >= 0;
+        enc_state->shared.image_features.usesAllChannelPal = 
+        enc_state->shared.image_features.usesAllChannelPal || 
         do_transform(gi, maybe_palette, weighted::Header());
       }
       // all-minus-one-channel palette (RGB with separate alpha, or CMY with
@@ -1372,6 +1379,8 @@ Status ModularFrameEncoder::PrepareStreamParams(const Rect& rect,
         if (maybe_palette_3.lossy_palette) {
           maybe_palette_3.predictor = Predictor::Weighted;
         }
+        enc_state->shared.image_features.usesAllChannelPal =
+        enc_state->shared.image_features.usesAllChannelPal || 
         do_transform(gi, maybe_palette_3, weighted::Header());
       }
     }
@@ -1398,6 +1407,8 @@ Status ModularFrameEncoder::PrepareStreamParams(const Rect& rect,
         maybe_palette_1.nb_colors =
             std::min((int)(xsize * ysize * 0.8),
                      (int)(cparams_.channel_colors_percent / 100. * colors));
+        enc_state->shared.image_features.usesXPal = 
+        enc_state->shared.image_features.usesXPal ||
         do_transform(gi, maybe_palette_1, weighted::Header());
       }
     }
