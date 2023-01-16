@@ -772,6 +772,9 @@ void RoundtripPatchFrame(Image3F* reference_frame,
   PassesEncoderState roundtrip_state;
   auto special_frame = std::unique_ptr<BitWriter>(new BitWriter());
   AuxOut patch_aux_out;
+  //Les do some very slow Patches.. :)
+  cparams.options.predictor = Predictor::Best;
+  cparams.speed_tier = SpeedTier::kGlacier;
   JXL_CHECK(EncodeFrame(cparams, patch_frame_info, state->shared.metadata, ib,
                         &roundtrip_state, cms, pool, special_frame.get(),
                         aux_out ? &patch_aux_out : nullptr));
