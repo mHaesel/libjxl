@@ -782,6 +782,10 @@ Status DefaultEncoderHeuristics::LossyFrameHeuristics(
                     cparams.speed_tier <= SpeedTier::kSquirrel)) {
     FindBestPatchDictionary(*opsin, enc_state, cms, pool, aux_out);
     PatchDictionaryEncoder::SubtractFrom(shared.image_features.patches, opsin);
+    if(cparams.patches == Override::kOn && !shared.image_features.patches.HasAny())
+    {
+      return JXL_FAILURE("Tried for Patches, but we do not have any, so SKIP"); //Dirty stuff, wont work with normal forced patches anymore, but meh..
+    }
   }
 
   static const float kAcQuant = 0.79f;

@@ -488,6 +488,10 @@ Status ModularFrameEncoder::ComputeEncodingData(
                             cparams_.color_transform == ColorTransform::kXYB);
     PatchDictionaryEncoder::SubtractFrom(
         enc_state->shared.image_features.patches, color);
+    if(cparams_.patches == Override::kOn && !enc_state->shared.image_features.patches.HasAny())
+    {
+      return JXL_FAILURE("Tried for Patches, but we do not have any, so SKIP"); //Dirty stuff, wont work with normal forced patches anymore, but meh..
+    }
   }
 
   // Convert ImageBundle to modular Image object
