@@ -1075,9 +1075,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
                    const JxlCmsInterface& cms, ThreadPool* pool,
                    BitWriter* writer, AuxOut* aux_out) {
   CompressParams cparams = cparams_orig;
-  if (cparams.speed_tier == SpeedTier::kGlacier && !cparams.IsLossless()) {
-    cparams.speed_tier = SpeedTier::kTortoise;
-  }
   if (cparams.speed_tier == SpeedTier::kGlacier) {
     std::cout<<"-------------------Frame Start--------------------------"<<std::endl;
     std::vector<CompressParams> all_params;
@@ -1087,7 +1084,10 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     bool usesAllPal{false};
     bool usesXPal{false};
     bool usesYPal{false};
+    bool tryForPatches = cparams_orig.patches != Override::kOff && cparams_orig.IsLossless(); //essentially to skip patches when encoding patches
     size_t bestTask{0};
+    const bool evenSlower = false;
+    std::unique_ptr<BitWriter> bestWriter;
 
     //only try group sizes based on the dimension of the frame
     //(0=128, 1=256, 2=512, 3=1024)
@@ -1106,13 +1106,17 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     }
 
     CompressParams cparams_attempt = cparams_orig;
+    //Only try patches as a last resort kind of thing, they are slow
     if(ib.IsJPEG())
     {
-      for (SpeedTier e : {SpeedTier::kTortoise,SpeedTier::kCheetah,SpeedTier::kFalcon,SpeedTier::kHare,SpeedTier::kKitten,SpeedTier::kLightning,SpeedTier::kSquirrel,SpeedTier::kThunder})
+      for (SpeedTier e : {SpeedTier::kTortoise})
       {
         cparams_attempt.speed_tier = e;
+        cparams_attempt.options.nb_repeats = 0.5f;
+        cparams_attempt.options.max_properties = 0;
+        all_params.push_back(cparams_attempt);
         cparams_attempt.options.nb_repeats = 1.0f;
-        cparams_attempt.options.max_properties = 4;
+        cparams_attempt.options.max_properties = 3;
         all_params.push_back(cparams_attempt);
       }
     }else if (!cparams.IsLossless())
@@ -1123,8 +1127,9 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     {
       cparams_attempt.speed_tier = SpeedTier::kTortoise;
       cparams_attempt.options.max_properties = 4;
-      cparams_attempt.patches = Override::kOn;//patches could be slow, lets try them at the end
       cparams_attempt.options.nb_repeats = 0.5f;
+      cparams_attempt.palette_colors = 1<<10;
+      cparams_attempt.patches = Override::kOff;
       //we do not do pal_trials for now, if we want to do them, we should base them on the number of colors in the frame (ie only try 1024 pal, if num_cols is smaller equal to 1024)
       //so, we would always absically have the choice of no pal, the default max of 1024 and a number equal to the cols in the image or larger.
       //TODO check difference between pal with exact amount of colors in the image and pal,that only partial or larger, who knows what could happen
@@ -1164,7 +1169,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       JXL_RETURN_IF_ERROR(RunOnPool(
           pool, 0, all_params.size(), ThreadPool::NoInit,
           [&](size_t task, size_t) {
-            BitWriter w;
+            auto w = std::unique_ptr<BitWriter>(new BitWriter);
             PassesEncoderState state;
             std::chrono::steady_clock::time_point startTime;
             std::chrono::steady_clock::time_point stopTime;
@@ -1173,7 +1178,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
             std::cout<<"Encoding Step "<<stepThis<<std::endl;
             startTime = std::chrono::steady_clock::now();
             if (!EncodeFrame(all_params[task], frame_info, metadata, ib, &state,
-                            cms, nullptr, &w, aux_out)) {
+                            cms, nullptr, w.get(), aux_out)) {
               num_errors.fetch_add(1, std::memory_order_relaxed);
               std::cout<<"error on Step"<<stepThis<<std::endl;
               return;
@@ -1181,16 +1186,17 @@ Status EncodeFrame(const CompressParams& cparams_orig,
             stopTime=std::chrono::steady_clock::now();
             auto Duration = std::chrono::duration_cast<std::chrono::milliseconds>(stopTime-startTime);
             std::cout.imbue(std::locale(""));
-            std::cout<<"Encoding Step "<<stepThis<<" finished after "<<Duration.count()<<" milliseconds"<<std::endl<<"Params were: g="<<all_params[task].modular_group_size_shift<<";e="<<static_cast<int>(all_params[bestTask].speed_tier)<<";X="<<all_params[task].channel_colors_percent<<";Y="<<all_params[task].channel_colors_pre_transform_percent<<";pal cols="<<all_params[task].palette_colors<<";nb_repeats="<<all_params[task].options.nb_repeats<<";predictor="<<static_cast<int>(all_params[task].options.predictor)<<";wp_tree_mode="<<static_cast<int>(all_params[task].options.wp_tree_mode)<<";patches="<<static_cast<int>(all_params[task].patches)<<std::endl<<"Size was "<<w.BitsWritten()<<" bits"<<std::endl;
+            std::cout<<"Encoding Step "<<stepThis<<" finished after "<<Duration.count()<<" milliseconds"<<std::endl<<"Params were: g="<<all_params[task].modular_group_size_shift<<";e="<<static_cast<int>(all_params[bestTask].speed_tier)<<";X="<<all_params[task].channel_colors_percent<<";Y="<<all_params[task].channel_colors_pre_transform_percent<<";pal cols="<<all_params[task].palette_colors<<";nb_repeats="<<all_params[task].options.nb_repeats<<";predictor="<<static_cast<int>(all_params[task].options.predictor)<<";wp_tree_mode="<<static_cast<int>(all_params[task].options.wp_tree_mode)<<";patches="<<static_cast<int>(all_params[task].patches)<<std::endl<<"Size was "<<w->BitsWritten()<<" bits"<<std::endl;
             std::lock_guard<std::mutex> lock(m);
-            if(w.BitsWritten() < bestSize)
+            if(w->BitsWritten() < bestSize)
             {
-              bestSize = w.BitsWritten();
+              bestSize = w->BitsWritten();
               usesPatches = state.shared.image_features.patches.HasAny();
               usesAllPal = state.shared.image_features.usesAllChannelPal;
               usesXPal = state.shared.image_features.usesXPal;
               usesYPal = state.shared.image_features.usesYPal;
               bestTask = task;
+              bestWriter = std::move(w);
             }
           },
           "Compress kGlacier"));
@@ -1200,32 +1206,36 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       std::cout<<"Best Task bits = "<<bestSize<<std::endl;
       std::cout<<"Best Params = "<<"g="<<all_params[bestTask].modular_group_size_shift<<";e="<<static_cast<int>(all_params[bestTask].speed_tier)<<";X="<<all_params[bestTask].channel_colors_percent<<";Y="<<all_params[bestTask].channel_colors_pre_transform_percent<<";pal cols="<<all_params[bestTask].palette_colors<<";nb_repeats="<<all_params[bestTask].options.nb_repeats<<";predictor="<<static_cast<int>(all_params[bestTask].options.predictor)<<";wp_tree_mode="<<static_cast<int>(all_params[bestTask].options.wp_tree_mode)<<";patches="<<static_cast<int>(all_params[bestTask].patches)<<std::endl<<std::endl;
       cparams = all_params[bestTask];
-      //now do some more silly single trials, like patches n shit
-      if(usesPatches)
+      //now actually try omega slow patches
+      if(tryForPatches)
       {
-        std::cout<<"Patches were used in the best result, try encoding without them"<<std::endl;
+        std::cout<<"Try with Patches"<<std::endl;
         cparams_attempt = cparams;
-        cparams_attempt.patches = Override::kOff;
-        BitWriter w;
+        cparams_attempt.patches = Override::kOn;
+        auto w = std::unique_ptr<BitWriter>(new BitWriter);
         PassesEncoderState state;
-        JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
-                                        cms, pool, &w, aux_out));
-        if (w.BitsWritten() < bestSize) {
-          bestSize = w.BitsWritten();
-          std::cout<<"Not using Patches was better :  "<<w.BitsWritten() <<" bits"<<std::endl;
-          cparams.patches = Override::kOff;
+        if(!EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
+                                        cms, pool, w.get(), aux_out))
+        {
+          std::cout<<"No Patches found, so skip further coding"<<std::endl;
+        }
+        else if (w->BitsWritten() < bestSize) {
+          bestSize = w->BitsWritten();
+          std::cout<<"Using Patches was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
+          cparams.patches = Override::kOn;
           usesAllPal = state.shared.image_features.usesAllChannelPal;
           usesXPal = state.shared.image_features.usesXPal;
           usesYPal = state.shared.image_features.usesYPal;
+          bestWriter = std::move(w);
         }
         else
         {
-          std::cout<<"Keep using Patches, without them we were at "<<w.BitsWritten() <<" bits"<<std::endl;
+          std::cout<<"Do not use Patches, with them we were at "<<w->BitsWritten() <<" bits"<<std::endl;
         }
       }
       else
       {
-        std::cout<<"No Patches used"<<std::endl;
+        std::cout<<"skip activating Patches, this is already a Patch / or disabled in cli"<<std::endl;
       }
       //pal stuff
       if(usesXPal)
@@ -1233,21 +1243,22 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         std::cout<<"channel_colors_percent (-X) was used, try encoding without it"<<std::endl;
         cparams_attempt = cparams;
         cparams_attempt.channel_colors_percent = 0.f;
-        BitWriter w;
+        auto w = std::unique_ptr<BitWriter>(new BitWriter);
         PassesEncoderState state;
         JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
-                                        cms, pool, &w, aux_out));
-        if (w.BitsWritten() < bestSize) {
-          bestSize = w.BitsWritten();
-          std::cout<<"Not -X was better :  "<<w.BitsWritten() <<" bits"<<std::endl;
+                                        cms, pool, w.get(), aux_out));
+        if (w->BitsWritten() < bestSize) {
+          bestSize = w->BitsWritten();
+          std::cout<<"Not -X was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
           cparams.channel_colors_percent = 0.f;
           usesAllPal = state.shared.image_features.usesAllChannelPal;
           usesXPal = state.shared.image_features.usesXPal;
           usesYPal = state.shared.image_features.usesYPal;
+          bestWriter = std::move(w);
         }
         else
         {
-          std::cout<<"Keep using -X, without them we were at "<<w.BitsWritten() <<" bits"<<std::endl;
+          std::cout<<"Keep using -X, without them we were at "<<w->BitsWritten() <<" bits"<<std::endl;
         }
       }
       else
@@ -1259,54 +1270,85 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         std::cout<<"channel_colors_pre_transform_percent (-Y) was used, try encoding without it"<<std::endl;
         cparams_attempt = cparams;
         cparams_attempt.channel_colors_pre_transform_percent = 0.f;
-        BitWriter w;
+        auto w = std::unique_ptr<BitWriter>(new BitWriter);
         PassesEncoderState state;
         JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
-                                        cms, pool, &w, aux_out));
-        if (w.BitsWritten() < bestSize) {
-          bestSize = w.BitsWritten();
-          std::cout<<"Not -Y was better :  "<<w.BitsWritten() <<" bits"<<std::endl;
+                                        cms, pool, w.get(), aux_out));
+        if (w->BitsWritten() < bestSize) {
+          bestSize = w->BitsWritten();
+          std::cout<<"Not -Y was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
           cparams.channel_colors_pre_transform_percent = 0.f;
           usesAllPal = state.shared.image_features.usesAllChannelPal;
           usesXPal = state.shared.image_features.usesXPal;
           usesYPal = state.shared.image_features.usesYPal;
+          bestWriter = std::move(w);
         }
         else
         {
-          std::cout<<"Keep using -Y, without them we were at "<<w.BitsWritten() <<" bits"<<std::endl;
+          std::cout<<"Keep using -Y, without them we were at "<<w->BitsWritten() <<" bits"<<std::endl;
         }
       }
       else
       {
         std::cout<<"channel_colors_pre_transform_percent (-Y) was not used"<<std::endl;
       }
-      if(usesAllPal)
+      if(false/*usesAllPal*/)
       {
         //The logic is, if we only have the above kinds of pals (is that possible?) without all_pal, we dont need duplicate trials
         std::cout<<"An All_Palette Transform was used, try encoding without it (implicitly disabling -X and -Y)"<<std::endl;
         cparams_attempt = cparams;
         cparams_attempt.palette_colors = 0;
-        BitWriter w;
+        auto w = std::unique_ptr<BitWriter>(new BitWriter);
         PassesEncoderState state;
         JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
-                                        cms, pool, &w, aux_out));
-        if (w.BitsWritten() < bestSize) {
-          bestSize = w.BitsWritten();
-          std::cout<<"No Palette was better :  "<<w.BitsWritten() <<" bits"<<std::endl;
+                                        cms, pool, w.get(), aux_out));
+        if (w->BitsWritten() < bestSize) {
+          bestSize = w->BitsWritten();
+          std::cout<<"No Palette was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
           cparams.palette_colors = 0;
           usesAllPal = state.shared.image_features.usesAllChannelPal;
           usesXPal = state.shared.image_features.usesXPal;
           usesYPal = state.shared.image_features.usesYPal;
+          bestWriter = std::move(w);
         }
         else
         {
-          std::cout<<"Keep using Palette, without it we were at "<<w.BitsWritten() <<" bits"<<std::endl;
+          std::cout<<"Keep using Palette, without it we were at "<<w->BitsWritten() <<" bits"<<std::endl;
         }
       }
       else
       {
         std::cout<<"All_Palette was not used"<<std::endl;
       }
+      if(evenSlower && cparams.IsLossless())
+      {
+        //try sampling more cols
+        std::cout<<"Try sampling more cols (-I 100)"<<std::endl;
+        cparams_attempt = cparams;
+        cparams_attempt.options.nb_repeats = 1.0f;
+        auto w = std::unique_ptr<BitWriter>(new BitWriter);
+        PassesEncoderState state;
+        JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
+                                        cms, pool, w.get(), aux_out));
+        if (w->BitsWritten() < bestSize) {
+          bestSize = w->BitsWritten();
+          std::cout<<"Slower -I was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
+          cparams.options.nb_repeats = 1.0f;
+          usesAllPal = state.shared.image_features.usesAllChannelPal;
+          usesXPal = state.shared.image_features.usesXPal;
+          usesYPal = state.shared.image_features.usesYPal;
+          bestWriter = std::move(w);
+        }
+        else
+        {
+          std::cout<<"Keep using default -I, without it we were at "<<w->BitsWritten() <<" bits"<<std::endl;
+        }
+      }
+      //writer was zero-padded before calling this func, so just append?
+      std::vector<std::unique_ptr<BitWriter>> v;
+      v.push_back(std::move(bestWriter)); // <- gross :()
+      writer->AppendByteAligned(v);
+      return true;
   }
   ib.VerifyMetadata();
 
