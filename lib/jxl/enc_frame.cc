@@ -1249,6 +1249,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       cparams_attempt.options.nb_repeats = 0.5f;
       cparams_attempt.palette_colors = 1<<10;
       cparams_attempt.patches = Override::kOff;
+      cparams_attempt.keep_invisible = Override::kOff;
       //we do not do pal_trials for now, if we want to do them, we should base them on the number of colors in the frame (ie only try 1024 pal, if num_cols is smaller equal to 1024)
       //so, we would always absically have the choice of no pal, the default max of 1024 and a number equal to the cols in the image or larger.
       //TODO check difference between pal with exact amount of colors in the image and pal,that only partial or larger, who knows what could happen
@@ -1462,6 +1463,62 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         {
           std::cout<<"Keep using default -I, without it we were at "<<w->BitsWritten() <<" bits"<<std::endl;
         }
+      }
+      if( ib.HasAlpha() ) //try some Alpha options
+      {
+        if( cparams.IsLossless() )
+        {
+          std::cout<<"Simple Alpha Trials (keep_invisible)"<<std::endl;
+          cparams_attempt = cparams;
+          cparams_attempt.keep_invisible = Override::kOn;
+          auto w = std::unique_ptr<BitWriter>(new BitWriter);
+          PassesEncoderState state;
+          JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
+                                          cms, pool, w.get(), aux_out));
+          if (w->BitsWritten() < bestSize) {
+            bestSize = w->BitsWritten();
+            std::cout<<"Keeping existing invisible pixels was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
+            cparams.keep_invisible = Override::kOn;
+            usesAllPal = state.shared.image_features.usesAllChannelPal;
+            usesXPal = state.shared.image_features.usesXPal;
+            usesYPal = state.shared.image_features.usesYPal;
+            bestWriter = std::move(w);
+          }
+          else
+          {
+            std::cout<<"Do not keep invisible pixels "<<w->BitsWritten() <<" bits"<<std::endl;
+          }
+        }
+        else
+        {
+          //try lossless alpha
+          std::cout<<"Simple Alpha Trials (lossless alpha distance)"<<std::endl;
+          cparams_attempt = cparams;
+          cparams_attempt.ec_distance[0] = 0.0f;
+          cparams_attempt.options.predictor = Predictor::Variable;
+          auto w = std::unique_ptr<BitWriter>(new BitWriter);
+          PassesEncoderState state;
+          JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
+                                          cms, pool, w.get(), aux_out));
+          if (w->BitsWritten() < bestSize) {
+            bestSize = w->BitsWritten();
+            std::cout<<"Lossless Alpha was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
+            cparams.ec_distance[0] = 0.0f;
+            cparams.options.predictor = Predictor::Variable;
+            usesAllPal = state.shared.image_features.usesAllChannelPal;
+            usesXPal = state.shared.image_features.usesXPal;
+            usesYPal = state.shared.image_features.usesYPal;
+            bestWriter = std::move(w);
+          }
+          else
+          {
+            std::cout<<"Keep using lossy alpha"<<w->BitsWritten() <<" bits"<<std::endl;
+          }
+        }
+      }
+      else
+      {
+        std::cout<<"No alpha channel available for alpha trials"<<std::endl;
       }
       //writer was zero-padded before calling this func, so just append?
       std::vector<std::unique_ptr<BitWriter>> v;
