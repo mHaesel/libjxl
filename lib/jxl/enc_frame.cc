@@ -1231,11 +1231,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       for (SpeedTier e : {SpeedTier::kTortoise})
       {
         cparams_attempt.speed_tier = e;
-        cparams_attempt.options.nb_repeats = 0.5f;
-        cparams_attempt.options.max_properties = 0;
-        all_params.push_back(cparams_attempt);
-        cparams_attempt.options.nb_repeats = 1.0f;
-        cparams_attempt.options.max_properties = 3;
         all_params.push_back(cparams_attempt);
       }
     }else if (!cparams.IsLossless())
@@ -1245,11 +1240,22 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     } else
     {
       cparams_attempt.speed_tier = SpeedTier::kTortoise;
-      cparams_attempt.options.max_properties = 4;
       cparams_attempt.options.nb_repeats = 0.5f;
       cparams_attempt.palette_colors = 1<<10;
       cparams_attempt.patches = Override::kOff;
-      cparams_attempt.keep_invisible = Override::kOff;
+      cparams_attempt.keep_invisible = Override::kOn;
+      /*if(ib.IsGray())
+      {
+        cparams_attempt.options.max_properties = 0;//speedup gray encoding without ratio loss
+      }
+      else
+      {
+        cparams_attempt.options.max_properties = 2;//
+      }
+      //to test
+      //if ib.hasAlpha, we could add +1 to the max_properties value
+      //In very limited testing adding the extra_property for the alpha channel was harmful to the compression ratio
+*/
       //we do not do pal_trials for now, if we want to do them, we should base them on the number of colors in the frame (ie only try 1024 pal, if num_cols is smaller equal to 1024)
       //so, we would always absically have the choice of no pal, the default max of 1024 and a number equal to the cols in the image or larger.
       //TODO check difference between pal with exact amount of colors in the image and pal,that only partial or larger, who knows what could happen
@@ -1470,14 +1476,14 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         {
           std::cout<<"Simple Alpha Trials (keep_invisible)"<<std::endl;
           cparams_attempt = cparams;
-          cparams_attempt.keep_invisible = Override::kOn;
+          cparams_attempt.keep_invisible = Override::kOff;
           auto w = std::unique_ptr<BitWriter>(new BitWriter);
           PassesEncoderState state;
           JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
                                           cms, pool, w.get(), aux_out));
           if (w->BitsWritten() < bestSize) {
             bestSize = w->BitsWritten();
-            std::cout<<"Keeping existing invisible pixels was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
+            std::cout<<"not keeping invisible pixels was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
             cparams.keep_invisible = Override::kOn;
             usesAllPal = state.shared.image_features.usesAllChannelPal;
             usesXPal = state.shared.image_features.usesXPal;
@@ -1486,7 +1492,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
           }
           else
           {
-            std::cout<<"Do not keep invisible pixels "<<w->BitsWritten() <<" bits"<<std::endl;
+            std::cout<<"Keep invisible pixels, else we get "<<w->BitsWritten() <<" bits"<<std::endl;
           }
         }
         else
