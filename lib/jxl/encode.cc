@@ -37,6 +37,8 @@
 #include "lib/jxl/memory_manager_internal.h"
 #include "lib/jxl/sanitizers.h"
 
+#include "lib/jxl/progress_manager.h"
+
 struct JxlErrorOrStatus {
   // NOLINTNEXTLINE(google-explicit-constructor)
   operator jxl::Status() const {
@@ -938,6 +940,7 @@ jxl::Status JxlEncoderStruct::ProcessOneEnqueuedInput() {
         ib.origin.y0 = input_frame->option_values.header.layer_info.crop_y0;
       }
       JXL_ASSERT(writer.BitsWritten() == 0);
+      jpegxl::progress::advanceCurrentProg();
       if (!jxl::EncodeFrame(input_frame->option_values.cparams, frame_info,
                             &metadata, input_frame->frame, &enc_state, cms,
                             thread_pool.get(), &writer,
@@ -1017,6 +1020,10 @@ jxl::Status JxlEncoderStruct::ProcessOneEnqueuedInput() {
       writer.ZeroPadToByte();
       JXL_RETURN_IF_ERROR(
           AppendBoxWithContents(jxl::MakeBoxType("jxli"), writer.GetSpan()));
+    }
+    if(last_frame)
+    {
+      jpegxl::progress::popStep(true);
     }
   } else {
     // Not a frame, so is a box instead
@@ -1463,6 +1470,18 @@ JxlEncoderStatus JxlEncoderSetFrameDistance(
   }
   frame_settings->values.cparams.butteraugli_distance = distance;
   return JxlErrorOrStatus::Success();
+}
+void DJxlProgressAddStep(const char* name, unsigned int totalProg, unsigned int prog, bool printProg)
+{
+  jpegxl::progress::addStep(jpegxl::progress::step(std::string(name),totalProg,prog,printProg));
+}
+void DJxlProgressPopStep(bool printNow)
+{
+  jpegxl::progress::popStep(printNow);
+}
+void DJxlProgressAdvanceCurrentProg(unsigned int num)
+{
+  jpegxl::progress::advanceCurrentProg(num);
 }
 
 JxlEncoderStatus JxlEncoderSetExtraChannelDistance(

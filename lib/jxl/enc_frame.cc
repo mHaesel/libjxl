@@ -71,6 +71,7 @@
 #include <chrono>
 #include <iostream>
 
+#include "lib/jxl/progress_manager.h"
 namespace jxl {
 namespace {
 
@@ -473,11 +474,13 @@ class LossyFrameEncoder {
                              const JxlCmsInterface& cms, ThreadPool* pool,
                              ModularFrameEncoder* modular_frame_encoder,
                              FrameHeader* frame_header) {
+    jpegxl::progress::addStep(jpegxl::progress::step("lossy enc"));
     JXL_ASSERT((opsin->xsize() % kBlockDim) == 0 &&
                (opsin->ysize() % kBlockDim) == 0);
     PassesSharedState& shared = enc_state_->shared;
 
     if (!enc_state_->cparams.max_error_mode) {
+      jpegxl::progress::addStep(jpegxl::progress::step("chroma adjust"));
       // Compute chromacity adjustments using two approaches.
       // 1) Distance based approach for chromacity adjustment:
       float x_qm_scale_steps[4] = {1.25f, 7.0f, 15.0f, 24.0f};
@@ -507,8 +510,8 @@ class LossyFrameEncoder {
       // B only adjusted by pixel-based approach.
       shared.frame_header.b_qm_scale =
           2 + pixel_stats.HowMuchIsBChannelPixelized();
+          jpegxl::progress::popStep();
     }
-
     JXL_RETURN_IF_ERROR(enc_state_->heuristics->LossyFrameHeuristics(
         enc_state_, modular_frame_encoder, linear, opsin, cms_, pool_,
         aux_out_));
@@ -520,9 +523,10 @@ class LossyFrameEncoder {
     for (PassesEncoderState::PassData& pass : enc_state_->passes) {
       pass.ac_tokens.resize(shared.frame_dim.num_groups);
     }
-
+    jpegxl::progress::addStep(jpegxl::progress::step("coeffOrders"));
     ComputeAllCoeffOrders(shared.frame_dim);
     shared.num_histograms = 1;
+    jpegxl::progress::popStep();
 
     const auto tokenize_group_init = [&](const size_t num_threads) {
       group_caches_.resize(num_threads);
@@ -556,12 +560,14 @@ class LossyFrameEncoder {
                                   "TokenizeGroup"));
 
     *frame_header = shared.frame_header;
+    jpegxl::progress::popStep();
     return true;
   }
 
   Status ComputeJPEGTranscodingData(const jpeg::JPEGData& jpeg_data,
                                     ModularFrameEncoder* modular_frame_encoder,
                                     FrameHeader* frame_header) {
+    jpegxl::progress::addStep(jpegxl::progress::step("JpegTranscode"));
     PassesSharedState& shared = enc_state_->shared;
 
     frame_header->x_qm_scale = 2;
@@ -919,6 +925,7 @@ class LossyFrameEncoder {
                                   "TokenizeGroup"));
     *frame_header = shared.frame_header;
     doing_jpeg_recompression = true;
+    jpegxl::progress::popStep();
     return true;
   }
 
@@ -1076,7 +1083,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
                    BitWriter* writer, AuxOut* aux_out) {
   CompressParams cparams = cparams_orig;
   if (cparams.speed_tier == SpeedTier::kGlacier) {
-    std::cout<<"-------------------Frame Start--------------------------"<<std::endl;
+    //std::cout<<"-------------------Frame Start--------------------------"<<std::endl;
     std::vector<CompressParams> all_params;
     std::mutex m;
     size_t bestSize{std::numeric_limits<size_t>::max()};
@@ -1088,6 +1095,8 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     size_t bestTask{0};
     const bool evenSlower = false;
     std::unique_ptr<BitWriter> bestWriter;
+
+    jpegxl::progress::addStep(jpegxl::progress::step("e10"));
 
     //only try group sizes based on the dimension of the frame
     //(0=128, 1=256, 2=512, 3=1024)
@@ -1111,11 +1120,13 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     {
       for (SpeedTier e : {SpeedTier::kTortoise})
       {
+        jpegxl::progress::addStep(jpegxl::progress::step("enc",1,0,true));
         cparams_attempt.speed_tier = e;
         all_params.push_back(cparams_attempt);
       }
     }else if (!cparams.IsLossless())
     {
+      jpegxl::progress::addStep(jpegxl::progress::step("enc",1,0,true));
       cparams_attempt.speed_tier = SpeedTier::kTortoise;
       all_params.push_back(cparams_attempt);
     } else
@@ -1146,11 +1157,13 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       //-E >0 (properties) can sometimes worsen ratio slightly, but thats ok, it helps almost always
       if(max_g >= 3)
       {
+        jpegxl::progress::addStep(jpegxl::progress::step("-g trial",max_g,0,true));
         for (int g=0; g <= max_g; ++g ) {
           cparams_attempt.modular_group_size_shift = g;
           all_params.push_back(cparams_attempt);
       }
       } else {//If the image is smaller, lets try some more accurate stuff because it is not as slow
+        jpegxl::progress::addStep(jpegxl::progress::step("multi trial",2*2*max_g,0,true));
         for (int tree_mode : {-1, (int)ModularOptions::TreeMode::kNoWP,
                               (int)ModularOptions::TreeMode::kDefault}) {
           if (tree_mode == -1) {
@@ -1182,18 +1195,14 @@ Status EncodeFrame(const CompressParams& cparams_orig,
             std::chrono::steady_clock::time_point stopTime;
             int stepThis = stepCount;
             ++stepCount;
-            std::cout<<"Encoding Step "<<stepThis<<std::endl;
             startTime = std::chrono::steady_clock::now();
             if (!EncodeFrame(all_params[task], frame_info, metadata, ib, &state,
                             cms, nullptr, w.get(), aux_out)) {
               num_errors.fetch_add(1, std::memory_order_relaxed);
-              std::cout<<"error on Step"<<stepThis<<std::endl;
               return;
             }
             stopTime=std::chrono::steady_clock::now();
             auto Duration = std::chrono::duration_cast<std::chrono::milliseconds>(stopTime-startTime);
-            std::cout.imbue(std::locale(""));
-            std::cout<<"Encoding Step "<<stepThis<<" finished after "<<Duration.count()<<" milliseconds"<<std::endl<<"Params were: g="<<all_params[task].modular_group_size_shift<<";e="<<static_cast<int>(all_params[bestTask].speed_tier)<<";X="<<all_params[task].channel_colors_percent<<";Y="<<all_params[task].channel_colors_pre_transform_percent<<";pal cols="<<all_params[task].palette_colors<<";nb_repeats="<<all_params[task].options.nb_repeats<<";predictor="<<static_cast<int>(all_params[task].options.predictor)<<";wp_tree_mode="<<static_cast<int>(all_params[task].options.wp_tree_mode)<<";patches="<<static_cast<int>(all_params[task].patches)<<std::endl<<"Size was "<<w->BitsWritten()<<" bits"<<std::endl;
             std::lock_guard<std::mutex> lock(m);
             if(w->BitsWritten() < bestSize)
             {
@@ -1205,18 +1214,17 @@ Status EncodeFrame(const CompressParams& cparams_orig,
               bestTask = task;
               bestWriter = std::move(w);
             }
+            jpegxl::progress::advanceCurrentProg();
           },
           "Compress kGlacier"));
       JXL_RETURN_IF_ERROR(num_errors.load(std::memory_order_relaxed) == 0);
 
-      std::cout<<"Best Task = "<<bestTask<<std::endl;
-      std::cout<<"Best Task bits = "<<bestSize<<std::endl;
-      std::cout<<"Best Params = "<<"g="<<all_params[bestTask].modular_group_size_shift<<";e="<<static_cast<int>(all_params[bestTask].speed_tier)<<";X="<<all_params[bestTask].channel_colors_percent<<";Y="<<all_params[bestTask].channel_colors_pre_transform_percent<<";pal cols="<<all_params[bestTask].palette_colors<<";nb_repeats="<<all_params[bestTask].options.nb_repeats<<";predictor="<<static_cast<int>(all_params[bestTask].options.predictor)<<";wp_tree_mode="<<static_cast<int>(all_params[bestTask].options.wp_tree_mode)<<";patches="<<static_cast<int>(all_params[bestTask].patches)<<std::endl<<std::endl;
       cparams = all_params[bestTask];
+      jpegxl::progress::popStep();
       //now actually try omega slow patches
       if(tryForPatches)
       {
-        std::cout<<"Try with Patches"<<std::endl;
+        jpegxl::progress::addStep(jpegxl::progress::step("patch trial"));
         cparams_attempt = cparams;
         cparams_attempt.patches = Override::kOn;
         auto w = std::unique_ptr<BitWriter>(new BitWriter);
@@ -1224,11 +1232,10 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         if(!EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
                                         cms, pool, w.get(), aux_out))
         {
-          std::cout<<"No Patches found, so skip further coding"<<std::endl;
+          //std::cout<<"No Patches found, so skip further coding"<<std::endl;
         }
         else if (w->BitsWritten() < bestSize) {
           bestSize = w->BitsWritten();
-          std::cout<<"Using Patches was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
           cparams.patches = Override::kOn;
           usesAllPal = state.shared.image_features.usesAllChannelPal;
           usesXPal = state.shared.image_features.usesXPal;
@@ -1237,17 +1244,19 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         }
         else
         {
-          std::cout<<"Do not use Patches, with them we were at "<<w->BitsWritten() <<" bits"<<std::endl;
+          //std::cout<<"Do not use Patches, with them we were at "<<w->BitsWritten() <<" bits"<<std::endl;
         }
+        jpegxl::progress::popStep();
       }
       else
       {
-        std::cout<<"skip activating Patches, this is already a Patch / or disabled in cli"<<std::endl;
+        //std::cout<<"skip activating Patches, this is already a Patch / or disabled in cli"<<std::endl;
       }
       //pal stuff
       if(usesXPal)
       {
-        std::cout<<"channel_colors_percent (-X) was used, try encoding without it"<<std::endl;
+        //std::cout<<"channel_colors_percent (-X) was used, try encoding without it"<<std::endl;
+        jpegxl::progress::addStep(jpegxl::progress::step("-X trial"));
         cparams_attempt = cparams;
         cparams_attempt.channel_colors_percent = 0.f;
         auto w = std::unique_ptr<BitWriter>(new BitWriter);
@@ -1256,7 +1265,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
                                         cms, pool, w.get(), aux_out));
         if (w->BitsWritten() < bestSize) {
           bestSize = w->BitsWritten();
-          std::cout<<"Not -X was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
+          //std::cout<<"Not -X was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
           cparams.channel_colors_percent = 0.f;
           usesAllPal = state.shared.image_features.usesAllChannelPal;
           usesXPal = state.shared.image_features.usesXPal;
@@ -1265,16 +1274,18 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         }
         else
         {
-          std::cout<<"Keep using -X, without them we were at "<<w->BitsWritten() <<" bits"<<std::endl;
+          //std::cout<<"Keep using -X, without them we were at "<<w->BitsWritten() <<" bits"<<std::endl;
         }
+        jpegxl::progress::popStep();
       }
       else
       {
-        std::cout<<"channel_colors_percent (-X) was not used"<<std::endl;
+        //std::cout<<"channel_colors_percent (-X) was not used"<<std::endl;
       }
       if(usesYPal)
       {
-        std::cout<<"channel_colors_pre_transform_percent (-Y) was used, try encoding without it"<<std::endl;
+        //std::cout<<"channel_colors_pre_transform_percent (-Y) was used, try encoding without it"<<std::endl;
+        jpegxl::progress::addStep(jpegxl::progress::step("-Y trial"));
         cparams_attempt = cparams;
         cparams_attempt.channel_colors_pre_transform_percent = 0.f;
         auto w = std::unique_ptr<BitWriter>(new BitWriter);
@@ -1283,7 +1294,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
                                         cms, pool, w.get(), aux_out));
         if (w->BitsWritten() < bestSize) {
           bestSize = w->BitsWritten();
-          std::cout<<"Not -Y was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
+          //std::cout<<"Not -Y was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
           cparams.channel_colors_pre_transform_percent = 0.f;
           usesAllPal = state.shared.image_features.usesAllChannelPal;
           usesXPal = state.shared.image_features.usesXPal;
@@ -1292,17 +1303,19 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         }
         else
         {
-          std::cout<<"Keep using -Y, without them we were at "<<w->BitsWritten() <<" bits"<<std::endl;
+          //std::cout<<"Keep using -Y, without them we were at "<<w->BitsWritten() <<" bits"<<std::endl;
         }
+        jpegxl::progress::popStep();
       }
       else
       {
-        std::cout<<"channel_colors_pre_transform_percent (-Y) was not used"<<std::endl;
+        //std::cout<<"channel_colors_pre_transform_percent (-Y) was not used"<<std::endl;
       }
       if(false/*usesAllPal*/)
       {
         //The logic is, if we only have the above kinds of pals (is that possible?) without all_pal, we dont need duplicate trials
-        std::cout<<"An All_Palette Transform was used, try encoding without it (implicitly disabling -X and -Y)"<<std::endl;
+        //std::cout<<"An All_Palette Transform was used, try encoding without it (implicitly disabling -X and -Y)"<<std::endl;
+        jpegxl::progress::addStep(jpegxl::progress::step("Palette_col trial"));
         cparams_attempt = cparams;
         cparams_attempt.palette_colors = 0;
         auto w = std::unique_ptr<BitWriter>(new BitWriter);
@@ -1311,7 +1324,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
                                         cms, pool, w.get(), aux_out));
         if (w->BitsWritten() < bestSize) {
           bestSize = w->BitsWritten();
-          std::cout<<"No Palette was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
+          //std::cout<<"No Palette was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
           cparams.palette_colors = 0;
           usesAllPal = state.shared.image_features.usesAllChannelPal;
           usesXPal = state.shared.image_features.usesXPal;
@@ -1320,17 +1333,19 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         }
         else
         {
-          std::cout<<"Keep using Palette, without it we were at "<<w->BitsWritten() <<" bits"<<std::endl;
+          //std::cout<<"Keep using Palette, without it we were at "<<w->BitsWritten() <<" bits"<<std::endl;
         }
+        jpegxl::progress::popStep();
       }
       else
       {
-        std::cout<<"All_Palette was not used"<<std::endl;
+        //std::cout<<"All_Palette was not used"<<std::endl;
       }
       if(evenSlower && cparams.IsLossless())
       {
         //try sampling more cols
-        std::cout<<"Try sampling more cols (-I 100)"<<std::endl;
+        //std::cout<<"Try sampling more cols (-I 100)"<<std::endl;
+        jpegxl::progress::addStep(jpegxl::progress::step("-I trial"));
         cparams_attempt = cparams;
         cparams_attempt.options.nb_repeats = 1.0f;
         auto w = std::unique_ptr<BitWriter>(new BitWriter);
@@ -1348,14 +1363,16 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         }
         else
         {
-          std::cout<<"Keep using default -I, without it we were at "<<w->BitsWritten() <<" bits"<<std::endl;
+          //std::cout<<"Keep using default -I, without it we were at "<<w->BitsWritten() <<" bits"<<std::endl;
         }
+        jpegxl::progress::popStep();
       }
       if( ib.HasAlpha() ) //try some Alpha options
       {
         if( cparams.IsLossless() )
         {
-          std::cout<<"Simple Alpha Trials (keep_invisible)"<<std::endl;
+          //std::cout<<"Simple Alpha Trials (keep_invisible)"<<std::endl;
+          jpegxl::progress::addStep(jpegxl::progress::step("modular alpha trial"));
           cparams_attempt = cparams;
           cparams_attempt.keep_invisible = Override::kOff;
           auto w = std::unique_ptr<BitWriter>(new BitWriter);
@@ -1364,7 +1381,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
                                           cms, pool, w.get(), aux_out));
           if (w->BitsWritten() < bestSize) {
             bestSize = w->BitsWritten();
-            std::cout<<"not keeping invisible pixels was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
+            //std::cout<<"not keeping invisible pixels was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
             cparams.keep_invisible = Override::kOn;
             usesAllPal = state.shared.image_features.usesAllChannelPal;
             usesXPal = state.shared.image_features.usesXPal;
@@ -1373,13 +1390,14 @@ Status EncodeFrame(const CompressParams& cparams_orig,
           }
           else
           {
-            std::cout<<"Keep invisible pixels, else we get "<<w->BitsWritten() <<" bits"<<std::endl;
+            //std::cout<<"Keep invisible pixels, else we get "<<w->BitsWritten() <<" bits"<<std::endl;
           }
         }
         else
         {
           //try lossless alpha
-          std::cout<<"Simple Alpha Trials (lossless alpha distance)"<<std::endl;
+          //std::cout<<"Simple Alpha Trials (lossless alpha distance)"<<std::endl;
+          jpegxl::progress::addStep(jpegxl::progress::step("vardct alpha trial"));
           cparams_attempt = cparams;
           cparams_attempt.ec_distance[0] = 0.0f;
           cparams_attempt.options.predictor = Predictor::Variable;
@@ -1389,7 +1407,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
                                           cms, pool, w.get(), aux_out));
           if (w->BitsWritten() < bestSize) {
             bestSize = w->BitsWritten();
-            std::cout<<"Lossless Alpha was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
+            //std::cout<<"Lossless Alpha was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
             cparams.ec_distance[0] = 0.0f;
             cparams.options.predictor = Predictor::Variable;
             usesAllPal = state.shared.image_features.usesAllChannelPal;
@@ -1399,20 +1417,23 @@ Status EncodeFrame(const CompressParams& cparams_orig,
           }
           else
           {
-            std::cout<<"Keep using lossy alpha"<<w->BitsWritten() <<" bits"<<std::endl;
+            //std::cout<<"Keep using lossy alpha"<<w->BitsWritten() <<" bits"<<std::endl;
           }
         }
+        jpegxl::progress::popStep();
       }
       else
       {
-        std::cout<<"No alpha channel available for alpha trials"<<std::endl;
+        //std::cout<<"No alpha channel available for alpha trials"<<std::endl;
       }
       //writer was zero-padded before calling this func, so just append?
       std::vector<std::unique_ptr<BitWriter>> v;
       v.push_back(std::move(bestWriter)); // <- gross :()
       writer->AppendByteAligned(v);
+      jpegxl::progress::popStep(true);
       return true;
   }
+  jpegxl::progress::addXY(ib.xsize(),ib.ysize());
   ib.VerifyMetadata();
 
   passes_enc_state->special_frames.clear();
@@ -1566,11 +1587,13 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         !ApplyOverride(cparams.keep_invisible, lossless) &&
         cparams.ec_resampling == cparams.resampling) {
       // simplify invisible pixels
+      jpegxl::progress::addStep(jpegxl::progress::step("SimplifyInvisible"));
       SimplifyInvisible(&opsin, ib.alpha(), lossless);
       if (want_linear) {
         SimplifyInvisible(const_cast<Image3F*>(&ib_or_linear->color()),
                           ib.alpha(), lossless);
       }
+      jpegxl::progress::popStep();
     }
     if (frame_header->encoding == FrameEncoding::kVarDCT) {
       PadImageToBlockMultipleInPlace(&opsin);
@@ -1580,7 +1603,9 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     } else if (frame_header->upsampling != 1 && !cparams.already_downsampled) {
       // In VarDCT mode, LossyFrameHeuristics takes care of running downsampling
       // after noise, if necessary.
+      jpegxl::progress::addStep(jpegxl::progress::step("DownsampleImage"));
       DownsampleImage(&opsin, frame_header->upsampling);
+      jpegxl::progress::popStep();
     }
   } else {
     JXL_RETURN_IF_ERROR(lossy_frame_encoder.ComputeEncodingData(
@@ -1597,10 +1622,12 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     }
   }
   // needs to happen *AFTER* VarDCT-ComputeEncodingData.
+  jpegxl::progress::addStep(jpegxl::progress::step("modular_enc"));
   JXL_RETURN_IF_ERROR(modular_frame_encoder->ComputeEncodingData(
       *frame_header, *ib.metadata(), &opsin, *extra_channels,
       lossy_frame_encoder.State(), cms, pool, aux_out,
       /* do_color=*/frame_header->encoding == FrameEncoding::kModular));
+  jpegxl::progress::popStep();
 
   writer->AppendByteAligned(lossy_frame_encoder.State()->special_frames);
   frame_header->UpdateFlag(
@@ -1631,19 +1658,25 @@ Status EncodeFrame(const CompressParams& cparams_orig,
   };
 
   if (frame_header->flags & FrameHeader::kPatches) {
+    //jpegxl::progress::addStep(jpegxl::progress::step("Finish Patches"));
     PatchDictionaryEncoder::Encode(
         lossy_frame_encoder.State()->shared.image_features.patches,
         get_output(0), kLayerDictionary, aux_out);
+    //jpegxl::progress::popStep(false);
   }
 
   if (frame_header->flags & FrameHeader::kSplines) {
+    //jpegxl::progress::addStep(jpegxl::progress::step("Finish Splines"));
     EncodeSplines(lossy_frame_encoder.State()->shared.image_features.splines,
                   get_output(0), kLayerSplines, HistogramParams(), aux_out);
+    //jpegxl::progress::popStep(false);
   }
 
   if (cparams.photon_noise_iso > 0) {
+    //jpegxl::progress::addStep(jpegxl::progress::step("Finish Iso noise"));
     lossy_frame_encoder.State()->shared.image_features.noise_params =
         SimulatePhotonNoise(ib.xsize(), ib.ysize(), cparams.photon_noise_iso);
+    //jpegxl::progress::popStep(false);
   }
   if (cparams.manual_noise.size() == NoiseParams::kNumNoisePoints) {
     for (size_t i = 0; i < NoiseParams::kNumNoisePoints; i++) {
@@ -1652,21 +1685,29 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     }
   }
   if (frame_header->flags & FrameHeader::kNoise) {
+    //jpegxl::progress::addStep(jpegxl::progress::step("Finish Noise"));
     EncodeNoise(lossy_frame_encoder.State()->shared.image_features.noise_params,
                 get_output(0), kLayerNoise, aux_out);
+    //jpegxl::progress::popStep(false);
   }
 
   JXL_RETURN_IF_ERROR(
       DequantMatricesEncodeDC(&lossy_frame_encoder.State()->shared.matrices,
                               get_output(0), kLayerQuant, aux_out));
   if (frame_header->encoding == FrameEncoding::kVarDCT) {
+    //jpegxl::progress::addStep(jpegxl::progress::step("EncodeGlobalDCInfo"));
     JXL_RETURN_IF_ERROR(
         lossy_frame_encoder.EncodeGlobalDCInfo(*frame_header, get_output(0)));
+    //jpegxl::progress::popStep(false);
   }
+  //jpegxl::progress::addStep(jpegxl::progress::step("EncodeGlobalInfo"));
   JXL_RETURN_IF_ERROR(
       modular_frame_encoder->EncodeGlobalInfo(get_output(0), aux_out));
+  //jpegxl::progress::popStep(false);
+  //jpegxl::progress::addStep(jpegxl::progress::step("enc ModularGlobal"));
   JXL_RETURN_IF_ERROR(modular_frame_encoder->EncodeStream(
       get_output(0), aux_out, kLayerModularGlobal, ModularStreamId::Global()));
+  //jpegxl::progress::popStep(false);
 
   const auto process_dc_group = [&](const uint32_t group_index,
                                     const size_t thread) {
@@ -1699,13 +1740,17 @@ Status EncodeFrame(const CompressParams& cparams_orig,
           ModularStreamId::ACMetadata(group_index)));
     }
   };
+  //jpegxl::progress::addStep(jpegxl::progress::step("enc DCGroup"));
   JXL_RETURN_IF_ERROR(RunOnPool(pool, 0, frame_dim.num_dc_groups,
                                 resize_aux_outs, process_dc_group,
                                 "EncodeDCGroup"));
+  //jpegxl::progress::popStep(false);
 
   if (frame_header->encoding == FrameEncoding::kVarDCT) {
+    //jpegxl::progress::addStep(jpegxl::progress::step("EncodeGlobalACInfo"));
     JXL_RETURN_IF_ERROR(lossy_frame_encoder.EncodeGlobalACInfo(
         get_output(global_ac_index), modular_frame_encoder.get()));
+    //jpegxl::progress::popStep(false);
   }
 
   std::atomic<int> num_errors{0};
@@ -1730,8 +1775,10 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       }
     }
   };
+  //jpegxl::progress::addStep(jpegxl::progress::step("EncodeGroupCoefficients"));
   JXL_RETURN_IF_ERROR(RunOnPool(pool, 0, num_groups, resize_aux_outs,
                                 process_group, "EncodeGroupCoefficients"));
+  //jpegxl::progress::popStep(false);
 
   // Resizing aux_outs to 0 also Assimilates the array.
   static_cast<void>(resize_aux_outs(0));

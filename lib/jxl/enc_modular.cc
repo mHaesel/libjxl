@@ -41,6 +41,8 @@
 #include "lib/jxl/pack_signed.h"
 #include "lib/jxl/toc.h"
 
+#include "lib/jxl/progress_manager.h"
+
 namespace jxl {
 
 namespace {
@@ -497,6 +499,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
   if (do_color && metadata.bit_depth.bits_per_sample <= 16 &&
       cparams_.speed_tier < SpeedTier::kCheetah &&
       cparams_.decoding_speed_tier < 2) {
+    jpegxl::progress::addStep(jpegxl::progress::step("patch"));
     FindBestPatchDictionary(*color, enc_state, cms, nullptr, aux_out,
                             cparams_.color_transform == ColorTransform::kXYB);
     PatchDictionaryEncoder::SubtractFrom(
@@ -505,6 +508,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
     {
       return JXL_FAILURE("Tried for Patches, but we do not have any, so SKIP"); //Dirty stuff, wont work with normal forced patches anymore, but meh..
     }
+    jpegxl::progress::popStep();
   }
 
   // Convert ImageBundle to modular Image object
@@ -672,6 +676,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
   if (cparams_.palette_colors != 0 || cparams_.lossy_palette) {
     // all-channel palette (e.g. RGBA)
     if (gi.channel.size() - gi.nb_meta_channels > 1) {
+      jpegxl::progress::addStep(jpegxl::progress::step("palette"));
       Transform maybe_palette(TransformId::kPalette);
       maybe_palette.begin_c = gi.nb_meta_channels;
       maybe_palette.num_c = gi.channel.size() - gi.nb_meta_channels;
@@ -689,6 +694,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
       enc_state->shared.image_features.usesAllChannelPal || 
       do_transform(gi, maybe_palette, weighted::Header(), pool,
                    cparams_.options.zero_tokens);
+      jpegxl::progress::popStep();
     }
     // all-minus-one-channel palette (RGB with separate alpha, or CMY with
     // separate K)
@@ -716,6 +722,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
       (cparams_.speed_tier <= SpeedTier::kThunder ||
        (do_color && metadata.bit_depth.bits_per_sample > 8))) {
     // single channel palette (like FLIF's ChannelCompact)
+    jpegxl::progress::addStep(jpegxl::progress::step("-Y pal"));
     size_t nb_channels = gi.channel.size() - gi.nb_meta_channels;
     int orig_bitdepth = max_bitdepth;
     max_bitdepth = 0;
@@ -745,6 +752,9 @@ Status ModularFrameEncoder::ComputeEncodingData(
       } else
         max_bitdepth = orig_bitdepth;
     }
+    jpegxl::progress::popStep();
+    jpegxl::progress::addStep(jpegxl::progress::step("pal"));
+    jpegxl::progress::popStep();
   }
 
   // don't do an RCT if we're short on bits
@@ -753,6 +763,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
       max_bitdepth + 1 < level_max_bitdepth) {
     if (cparams_.colorspace < 0 && (!cparams_.ModularPartIsLossless() ||
                                     cparams_.speed_tier > SpeedTier::kHare)) {
+      jpegxl::progress::addStep(jpegxl::progress::step("rct"));
       Transform ycocg{TransformId::kRCT};
       ycocg.rct_type = 6;
       ycocg.begin_c = gi.nb_meta_channels;
@@ -764,16 +775,19 @@ Status ModularFrameEncoder::ComputeEncodingData(
       sg.rct_type = cparams_.colorspace;
       do_transform(gi, sg, weighted::Header(), pool);
       max_bitdepth++;
+      jpegxl::progress::popStep();
     }
   }
 
   // don't do squeeze if we don't have some spare bits
   if (cparams_.responsive && !gi.channel.empty() &&
       max_bitdepth + 2 < level_max_bitdepth) {
+    jpegxl::progress::addStep(jpegxl::progress::step("squeeze"));
     Transform t(TransformId::kSqueeze);
     t.squeezes = cparams_.squeezes;
     do_transform(gi, t, weighted::Header(), pool);
     max_bitdepth += 2;
+    jpegxl::progress::popStep();
   }
 
   if (max_bitdepth + 1 > level_max_bitdepth) {
@@ -1068,7 +1082,6 @@ Status ModularFrameEncoder::PrepareEncoding(const FrameHeader& frame_header,
                 stream_images_[i], stream_options_[i], /*writer=*/nullptr,
                 /*aux_out=*/nullptr, 0, i, &tree_samples, &total_pixels));
           }
-
           // TODO(veluca): parallelize more.
           trees[chunk] =
               LearnTree(std::move(tree_samples), total_pixels,
@@ -1131,6 +1144,7 @@ Status ModularFrameEncoder::PrepareEncoding(const FrameHeader& frame_header,
             /*widths=*/&image_widths_[stream_id]));
       },
       "ComputeTokens"));
+  
   return true;
 }
 

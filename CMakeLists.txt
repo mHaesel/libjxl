@@ -307,6 +307,8 @@ if (CXX_NO_RTTI_SUPPORTED)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
 endif()
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
+
 # Internal flags for coverage builds:
 set(JPEGXL_COVERAGE_FLAGS)
 set(JPEGXL_COVERAGE_LINK_FLAGS)

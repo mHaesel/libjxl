@@ -26,6 +26,8 @@
 #include "lib/jxl/enc_splines.h"
 #include "lib/jxl/enc_xyb.h"
 
+#include "lib/jxl/progress_manager.h"
+
 namespace jxl {
 
 struct AuxOut;
@@ -713,6 +715,7 @@ Status DefaultEncoderHeuristics::LossyFrameHeuristics(
   // Compute parameters for noise synthesis.
   if (shared.frame_header.flags & FrameHeader::kNoise) {
     if (cparams.photon_noise_iso == 0) {
+      jpegxl::progress::addStep(jpegxl::progress::step("noise"));
       // Don't start at zero amplitude since adding noise is expensive -- it
       // significantly slows down decoding, and this is unlikely to
       // completely go away even with advanced optimizations. After the
@@ -738,12 +741,14 @@ Status DefaultEncoderHeuristics::LossyFrameHeuristics(
                              quality_coef)) {
         shared.frame_header.flags &= ~FrameHeader::kNoise;
       }
+      jpegxl::progress::popStep();
     }
   }
   if (enc_state->shared.frame_header.upsampling != 1 &&
       !cparams.already_downsampled) {
     // In VarDCT mode, LossyFrameHeuristics takes care of running downsampling
     // after noise, if necessary.
+    jpegxl::progress::addStep(jpegxl::progress::step("downsample"));
     if (cparams.resampling == 2) {
       // TODO(lode): use the regular DownsampleImage, or adapt to the custom
       // coefficients, if there is are custom upscaling coefficients in
@@ -759,6 +764,7 @@ Status DefaultEncoderHeuristics::LossyFrameHeuristics(
     } else {
       DownsampleImage(opsin, cparams.resampling);
     }
+    jpegxl::progress::popStep();
     PadImageToBlockMultipleInPlace(opsin);
   }
 
@@ -780,12 +786,14 @@ Status DefaultEncoderHeuristics::LossyFrameHeuristics(
   // Find and subtract patches/dots.
   if (ApplyOverride(cparams.patches,
                     cparams.speed_tier <= SpeedTier::kSquirrel)) {
+    jpegxl::progress::addStep(jpegxl::progress::step("patch"));
     FindBestPatchDictionary(*opsin, enc_state, cms, pool, aux_out);
     PatchDictionaryEncoder::SubtractFrom(shared.image_features.patches, opsin);
     if(cparams.patches == Override::kOn && !shared.image_features.patches.HasAny())
     {
       return JXL_FAILURE("Tried for Patches, but we do not have any, so SKIP"); //Dirty stuff, wont work with normal forced patches anymore, but meh..
     }
+    jpegxl::progress::popStep();
   }
 
   static const float kAcQuant = 0.79f;

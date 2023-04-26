@@ -35,6 +35,8 @@ else ()
     -fmerge-all-constants
     -fno-builtin-fwrite
     -fno-builtin-fread
+    
+    -std=c++17
 
     # WARN_FLAGS
     -Wall

@@ -25,6 +25,9 @@
 #include "lib/jxl/modular/encoding/context_predict.h"
 #include "lib/jxl/modular/options.h"
 #include "lib/jxl/pack_signed.h"
+
+#include "lib/jxl/progress_manager.h"
+
 HWY_BEFORE_NAMESPACE();
 namespace jxl {
 namespace HWY_NAMESPACE {
@@ -180,6 +183,7 @@ void FindBestSplit(TreeSamples &tree_samples, float threshold,
 
   // TODO(veluca): consider parallelizing the search (processing multiple nodes
   // at a time).
+  jpegxl::progress::addStep(jpegxl::progress::step("learnTree",0,0,true));
   while (!nodes.empty()) {
     size_t pos = nodes.back().pos;
     size_t begin = nodes.back().begin;
@@ -463,7 +467,9 @@ void FindBestSplit(TreeSamples &tree_samples, float threshold,
       nodes.push_back(NodeInfo{(*tree)[pos].lchild, best->pos, end,
                                used_properties, new_sp_range});
     }
+    jpegxl::progress::advanceCurrentProg();
   }
+  jpegxl::progress::popStep();
 }
 
 // NOLINTNEXTLINE(google-readability-namespace-comments)

@@ -40,6 +40,7 @@ bool EncodeImageJXL(const JXLCompressParams& params, const PackedPixelFile& ppf,
                     const std::vector<uint8_t>* jpeg_bytes,
                     std::vector<uint8_t>* compressed) {
   auto encoder = JxlEncoderMake(/*memory_manager=*/nullptr);
+  DJxlProgressAddStep("Prepare Encoding",0,0,false);
   JxlEncoder* enc = encoder.get();
 
   if (params.allow_expert_options) {
@@ -217,7 +218,8 @@ bool EncodeImageJXL(const JXLCompressParams& params, const PackedPixelFile& ppf,
       }
       JxlEncoderCloseBoxes(enc);
     }
-
+    DJxlProgressPopStep(false);
+    DJxlProgressAddStep("Add frames",0,0,false);
     for (size_t num_frame = 0; num_frame < ppf.frames.size(); ++num_frame) {
       const jxl::extras::PackedFrame& pframe = ppf.frames[num_frame];
       const jxl::extras::PackedImage& pimage = pframe.color;
@@ -291,6 +293,8 @@ bool EncodeImageJXL(const JXLCompressParams& params, const PackedPixelFile& ppf,
     }
   }
   JxlEncoderCloseInput(enc);
+  DJxlProgressPopStep(false);
+  DJxlProgressAddStep("Frame",ppf.frames.size(),0,true);
   // Reading compressed output
   compressed->clear();
   compressed->resize(4096);
@@ -306,6 +310,7 @@ bool EncodeImageJXL(const JXLCompressParams& params, const PackedPixelFile& ppf,
       avail_out = compressed->size() - offset;
     }
   }
+  
   compressed->resize(next_out - compressed->data());
   if (result != JXL_ENC_SUCCESS) {
     fprintf(stderr, "JxlEncoderProcessOutput failed.\n");
