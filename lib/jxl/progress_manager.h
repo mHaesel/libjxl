@@ -44,8 +44,8 @@ namespace jpegxl{
     }
     inline void print()
     {
-      std::cout<<"\033]0;"<<constructProgressString()<<"\007";
-      //std::cout<<constructProgressString()<<std::endl;
+      //std::cout<<"\033]0;"<<constructProgressString()<<"\007";
+      std::cout<<constructProgressString()<<std::endl;
     }
     inline void addStep(const step& st)
     {
