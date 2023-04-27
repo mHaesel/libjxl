@@ -508,7 +508,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
     {
       return JXL_FAILURE("Tried for Patches, but we do not have any, so SKIP"); //Dirty stuff, wont work with normal forced patches anymore, but meh..
     }
-    jpegxl::progress::popStep();
+    jpegxl::progress::popStep("patch");
   }
 
   // Convert ImageBundle to modular Image object
@@ -694,7 +694,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
       enc_state->shared.image_features.usesAllChannelPal || 
       do_transform(gi, maybe_palette, weighted::Header(), pool,
                    cparams_.options.zero_tokens);
-      jpegxl::progress::popStep();
+      jpegxl::progress::popStep("palette");
     }
     // all-minus-one-channel palette (RGB with separate alpha, or CMY with
     // separate K)
@@ -752,9 +752,9 @@ Status ModularFrameEncoder::ComputeEncodingData(
       } else
         max_bitdepth = orig_bitdepth;
     }
-    jpegxl::progress::popStep();
+    jpegxl::progress::popStep("-Y pal");
     jpegxl::progress::addStep(jpegxl::progress::step("pal"));
-    jpegxl::progress::popStep();
+    jpegxl::progress::popStep("pal");
   }
 
   // don't do an RCT if we're short on bits
@@ -775,7 +775,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
       sg.rct_type = cparams_.colorspace;
       do_transform(gi, sg, weighted::Header(), pool);
       max_bitdepth++;
-      jpegxl::progress::popStep();
+      jpegxl::progress::popStep("rct");
     }
   }
 
@@ -787,7 +787,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
     t.squeezes = cparams_.squeezes;
     do_transform(gi, t, weighted::Header(), pool);
     max_bitdepth += 2;
-    jpegxl::progress::popStep();
+    jpegxl::progress::popStep("squeeze");
   }
 
   if (max_bitdepth + 1 > level_max_bitdepth) {
@@ -799,6 +799,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
   std::vector<uint32_t> quants;
 
   if (!cparams_.ModularPartIsLossless()) {
+    jpegxl::progress::addStep(jpegxl::progress::step("lossyModular"));
     quants.resize(gi.channel.size(), 1);
     float quantizer = 0.25f;
     if (!cparams_.responsive) {
@@ -857,6 +858,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
       QuantizeChannel(gi.channel[i], q);
       quants[i] = q;
     }
+    jpegxl::progress::popStep("lossyModular");
   }
 
   // Fill other groups.
@@ -883,6 +885,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
   }
   // AC global -> nothing.
   // AC
+  jpegxl::progress::addStep(jpegxl::progress::step("modularAc"));
   for (size_t group_id = 0; group_id < frame_dim_.num_groups; group_id++) {
     const size_t gx = group_id % frame_dim_.xsize_groups;
     const size_t gy = group_id / frame_dim_.xsize_groups;
@@ -896,6 +899,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
           mrect, minShift, maxShift, ModularStreamId::ModularAC(group_id, i)});
     }
   }
+  jpegxl::progress::popStep("modularAc");
   // if there's only one group, everything ends up in GlobalModular
   // in that case, also try RCTs/WP params for the one group
   if (stream_params.size() == 2) {
@@ -904,6 +908,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
   }
   gi_channel_.resize(stream_images_.size());
 
+  jpegxl::progress::addStep(jpegxl::progress::step("prepareStreamParams"));
   JXL_RETURN_IF_ERROR(RunOnPool(
       pool, 0, stream_params.size(), ThreadPool::NoInit,
       [&](const uint32_t i, size_t /* thread */) {
@@ -925,8 +930,9 @@ Status ModularFrameEncoder::ComputeEncodingData(
       full_image.channel[c].plane = ImageI();
     }
   }
-
+  jpegxl::progress::popStep("prepareStreamParams");
   if (!quants.empty()) {
+    jpegxl::progress::addStep(jpegxl::progress::step("quants"));
     for (uint32_t stream_id = 0; stream_id < stream_images_.size();
          stream_id++) {
       // skip non-modular stream_ids
@@ -981,9 +987,12 @@ Status ModularFrameEncoder::ComputeEncodingData(
       }
     }
     multiplier_info_.resize(new_num);
+    jpegxl::progress::popStep("quants");
   }
 
+  jpegxl::progress::addStep(jpegxl::progress::step("Validate ChanDim"));
   JXL_RETURN_IF_ERROR(ValidateChannelDimensions(gi, stream_options_[0]));
+  jpegxl::progress::popStep("Validate ChanDim");
 
   return PrepareEncoding(frame_header, pool, enc_state->heuristics.get(),
                          aux_out);
@@ -995,6 +1004,7 @@ Status ModularFrameEncoder::PrepareEncoding(const FrameHeader& frame_header,
                                             AuxOut* aux_out) {
   if (!tree_.empty()) return true;
 
+  jpegxl::progress::addStep(jpegxl::progress::step("tree",0,0,true));
   // Compute tree.
   size_t num_streams = stream_images_.size();
   stream_headers_.resize(num_streams);
@@ -1144,7 +1154,7 @@ Status ModularFrameEncoder::PrepareEncoding(const FrameHeader& frame_header,
             /*widths=*/&image_widths_[stream_id]));
       },
       "ComputeTokens"));
-  
+  jpegxl::progress::popStep("tree");
   return true;
 }
 

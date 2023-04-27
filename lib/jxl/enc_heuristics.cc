@@ -741,7 +741,7 @@ Status DefaultEncoderHeuristics::LossyFrameHeuristics(
                              quality_coef)) {
         shared.frame_header.flags &= ~FrameHeader::kNoise;
       }
-      jpegxl::progress::popStep();
+      jpegxl::progress::popStep("noise");
     }
   }
   if (enc_state->shared.frame_header.upsampling != 1 &&
@@ -764,7 +764,7 @@ Status DefaultEncoderHeuristics::LossyFrameHeuristics(
     } else {
       DownsampleImage(opsin, cparams.resampling);
     }
-    jpegxl::progress::popStep();
+    jpegxl::progress::popStep("downsample");
     PadImageToBlockMultipleInPlace(opsin);
   }
 
@@ -778,9 +778,11 @@ Status DefaultEncoderHeuristics::LossyFrameHeuristics(
     if (!shared.image_features.splines.HasAny()) {
       shared.image_features.splines = FindSplines(*opsin);
     }
+    jpegxl::progress::addStep(jpegxl::progress::step("splines"));
     JXL_RETURN_IF_ERROR(shared.image_features.splines.InitializeDrawCache(
         opsin->xsize(), opsin->ysize(), shared.cmap));
     shared.image_features.splines.SubtractFrom(opsin);
+    jpegxl::progress::popStep("splines");
   }
 
   // Find and subtract patches/dots.
@@ -793,9 +795,10 @@ Status DefaultEncoderHeuristics::LossyFrameHeuristics(
     {
       return JXL_FAILURE("Tried for Patches, but we do not have any, so SKIP"); //Dirty stuff, wont work with normal forced patches anymore, but meh..
     }
-    jpegxl::progress::popStep();
+    jpegxl::progress::popStep("patch");
   }
 
+  jpegxl::progress::addStep(jpegxl::progress::step("globalScaleAndQuant"));
   static const float kAcQuant = 0.79f;
   const float quant_dc = InitialQuantDC(cparams.butteraugli_distance);
   Quantizer& quantizer = enc_state->shared.quantizer;
@@ -803,6 +806,7 @@ Status DefaultEncoderHeuristics::LossyFrameHeuristics(
   // assuming that it will be the same as for Falcon mode is good enough.
   quantizer.ComputeGlobalScaleAndQuant(
       quant_dc, kAcQuant / cparams.butteraugli_distance, 0);
+  jpegxl::progress::popStep("globalScaleAndQuant");
 
   // TODO(veluca): we can now run all the code from here to FindBestQuantizer
   // (excluded) one rect at a time. Do that.
@@ -827,6 +831,7 @@ Status DefaultEncoderHeuristics::LossyFrameHeuristics(
   AcStrategyHeuristics acs_heuristics;
   CfLHeuristics cfl_heuristics;
 
+  jpegxl::progress::addStep(jpegxl::progress::step("initialQuantF"));
   if (!opsin->xsize()) {
     JXL_ASSERT(HandlesColorConversion(cparams, *original_pixels));
     *opsin = Image3F(RoundUpToBlockDim(original_pixels->xsize()),
@@ -860,11 +865,12 @@ Status DefaultEncoderHeuristics::LossyFrameHeuristics(
         &enc_state->initial_quant_masking1x1);
     quantizer.SetQuantField(quant_dc, enc_state->initial_quant_field, nullptr);
   }
-
+  jpegxl::progress::popStep("initialQuantF");
   // TODO(veluca): do something about animations.
 
   // Apply inverse-gaborish.
   if (shared.frame_header.loop_filter.gab) {
+    jpegxl::progress::addStep(jpegxl::progress::step("inversegaborish"));
     // Unsure why better to do some more gaborish on X and B than Y.
     float weight[3] = {
         1.0036278514398933f,
@@ -872,11 +878,14 @@ Status DefaultEncoderHeuristics::LossyFrameHeuristics(
         0.99719338015886894f,
     };
     GaborishInverse(opsin, weight, pool);
+    jpegxl::progress::popStep("inversegaborish");
   }
-
+  jpegxl::progress::addStep(jpegxl::progress::step("FindBestDequant"));
   FindBestDequantMatrices(cparams, *opsin, modular_frame_encoder,
                           &enc_state->shared.matrices);
+  jpegxl::progress::popStep("FindBestDequant");
 
+  jpegxl::progress::addStep(jpegxl::progress::step("cfl+acs"));
   cfl_heuristics.Init(*opsin);
   acs_heuristics.Init(*opsin, enc_state);
 
@@ -942,17 +951,24 @@ Status DefaultEncoderHeuristics::LossyFrameHeuristics(
       process_tile, "Enc Heuristics"));
 
   acs_heuristics.Finalize(aux_out);
+  jpegxl::progress::popStep("cfl+acs");
   if (cparams.speed_tier <= SpeedTier::kHare) {
+    jpegxl::progress::addStep(jpegxl::progress::step("computeDC"));
     cfl_heuristics.ComputeDC(/*fast=*/cparams.speed_tier >= SpeedTier::kWombat,
                              &enc_state->shared.cmap);
+    jpegxl::progress::popStep("computeDC");
   }
 
+  jpegxl::progress::addStep(jpegxl::progress::step("bestQuant"));
   // Refine quantization levels.
   FindBestQuantizer(original_pixels, *opsin, enc_state, cms, pool, aux_out);
+  jpegxl::progress::popStep("bestQuant");
 
   // Choose a context model that depends on the amount of quantization for AC.
   if (cparams.speed_tier < SpeedTier::kFalcon) {
+    jpegxl::progress::addStep(jpegxl::progress::step("bestNlockEntropy"));
     FindBestBlockEntropyModel(*enc_state);
+    jpegxl::progress::popStep("bestNlockEntropy");
   }
   return true;
 }

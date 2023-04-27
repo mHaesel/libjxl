@@ -27,6 +27,7 @@
 #include "lib/jxl/pack_signed.h"
 
 #include "lib/jxl/progress_manager.h"
+#include <chrono>
 
 HWY_BEFORE_NAMESPACE();
 namespace jxl {
@@ -183,7 +184,8 @@ void FindBestSplit(TreeSamples &tree_samples, float threshold,
 
   // TODO(veluca): consider parallelizing the search (processing multiple nodes
   // at a time).
-  jpegxl::progress::addStep(jpegxl::progress::step("learnTree",0,0,true));
+  size_t progressSplits{0};
+  std::chrono::time_point<std::chrono::high_resolution_clock> lastProgPrint;
   while (!nodes.empty()) {
     size_t pos = nodes.back().pos;
     size_t begin = nodes.back().begin;
@@ -467,9 +469,14 @@ void FindBestSplit(TreeSamples &tree_samples, float threshold,
       nodes.push_back(NodeInfo{(*tree)[pos].lchild, best->pos, end,
                                used_properties, new_sp_range});
     }
-    jpegxl::progress::advanceCurrentProg();
+    ++progressSplits;
+    if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 100)
+    {
+      jpegxl::progress::advanceCurrentProg(progressSplits);
+      progressSplits=0;
+      lastProgPrint = std::chrono::high_resolution_clock::now();
+    }
   }
-  jpegxl::progress::popStep();
 }
 
 // NOLINTNEXTLINE(google-readability-namespace-comments)

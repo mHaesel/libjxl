@@ -510,14 +510,18 @@ class LossyFrameEncoder {
       // B only adjusted by pixel-based approach.
       shared.frame_header.b_qm_scale =
           2 + pixel_stats.HowMuchIsBChannelPixelized();
-          jpegxl::progress::popStep();
+      jpegxl::progress::popStep("chroma adjust");
     }
+    jpegxl::progress::addStep(jpegxl::progress::step("heuristics"));
     JXL_RETURN_IF_ERROR(enc_state_->heuristics->LossyFrameHeuristics(
         enc_state_, modular_frame_encoder, linear, opsin, cms_, pool_,
         aux_out_));
+    jpegxl::progress::popStep("heuristics");
 
+    jpegxl::progress::addStep(jpegxl::progress::step("init pass"));
     JXL_RETURN_IF_ERROR(InitializePassesEncoder(
         *opsin, cms, pool_, enc_state_, modular_frame_encoder, aux_out_));
+    jpegxl::progress::popStep("init pass");
 
     enc_state_->passes.resize(enc_state_->progressive_splitter.GetNumPasses());
     for (PassesEncoderState::PassData& pass : enc_state_->passes) {
@@ -526,7 +530,7 @@ class LossyFrameEncoder {
     jpegxl::progress::addStep(jpegxl::progress::step("coeffOrders"));
     ComputeAllCoeffOrders(shared.frame_dim);
     shared.num_histograms = 1;
-    jpegxl::progress::popStep();
+    jpegxl::progress::popStep("coeffOrders");
 
     const auto tokenize_group_init = [&](const size_t num_threads) {
       group_caches_.resize(num_threads);
@@ -555,12 +559,14 @@ class LossyFrameEncoder {
             enc_state_->shared.block_ctx_map);
       }
     };
+    jpegxl::progress::addStep(jpegxl::progress::step("tokenizeGroup"));
     JXL_RETURN_IF_ERROR(RunOnPool(pool_, 0, shared.frame_dim.num_groups,
                                   tokenize_group_init, tokenize_group,
                                   "TokenizeGroup"));
+    jpegxl::progress::popStep("tokenizeGroup");
 
     *frame_header = shared.frame_header;
-    jpegxl::progress::popStep();
+    jpegxl::progress::popStep("lossy enc");
     return true;
   }
 
@@ -925,7 +931,7 @@ class LossyFrameEncoder {
                                   "TokenizeGroup"));
     *frame_header = shared.frame_header;
     doing_jpeg_recompression = true;
-    jpegxl::progress::popStep();
+    jpegxl::progress::popStep("JpegTranscode");
     return true;
   }
 
@@ -1095,6 +1101,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     size_t bestTask{0};
     const bool evenSlower = false;
     std::unique_ptr<BitWriter> bestWriter;
+    bool stepped = false;
 
     jpegxl::progress::addStep(jpegxl::progress::step("e10"));
 
@@ -1120,13 +1127,11 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     {
       for (SpeedTier e : {SpeedTier::kTortoise})
       {
-        jpegxl::progress::addStep(jpegxl::progress::step("enc",1,0,true));
         cparams_attempt.speed_tier = e;
         all_params.push_back(cparams_attempt);
       }
     }else if (!cparams.IsLossless())
     {
-      jpegxl::progress::addStep(jpegxl::progress::step("enc",1,0,true));
       cparams_attempt.speed_tier = SpeedTier::kTortoise;
       all_params.push_back(cparams_attempt);
     } else
@@ -1158,12 +1163,14 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       if(max_g >= 3)
       {
         jpegxl::progress::addStep(jpegxl::progress::step("-g trial",max_g,0,true));
+        stepped=true;
         for (int g=0; g <= max_g; ++g ) {
           cparams_attempt.modular_group_size_shift = g;
           all_params.push_back(cparams_attempt);
       }
       } else {//If the image is smaller, lets try some more accurate stuff because it is not as slow
         jpegxl::progress::addStep(jpegxl::progress::step("multi trial",2*2*max_g,0,true));
+        stepped=true;
         for (int tree_mode : {-1, (int)ModularOptions::TreeMode::kNoWP,
                               (int)ModularOptions::TreeMode::kDefault}) {
           if (tree_mode == -1) {
@@ -1220,7 +1227,10 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       JXL_RETURN_IF_ERROR(num_errors.load(std::memory_order_relaxed) == 0);
 
       cparams = all_params[bestTask];
-      jpegxl::progress::popStep();
+      if(stepped)
+      {
+        jpegxl::progress::popStep();//this could be one of two different steps above
+      }
       //now actually try omega slow patches
       if(tryForPatches)
       {
@@ -1246,7 +1256,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         {
           //std::cout<<"Do not use Patches, with them we were at "<<w->BitsWritten() <<" bits"<<std::endl;
         }
-        jpegxl::progress::popStep();
+        jpegxl::progress::popStep("patch trial");
       }
       else
       {
@@ -1276,7 +1286,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         {
           //std::cout<<"Keep using -X, without them we were at "<<w->BitsWritten() <<" bits"<<std::endl;
         }
-        jpegxl::progress::popStep();
+        jpegxl::progress::popStep("-X trial");
       }
       else
       {
@@ -1305,7 +1315,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         {
           //std::cout<<"Keep using -Y, without them we were at "<<w->BitsWritten() <<" bits"<<std::endl;
         }
-        jpegxl::progress::popStep();
+        jpegxl::progress::popStep("-Y trial");
       }
       else
       {
@@ -1335,7 +1345,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         {
           //std::cout<<"Keep using Palette, without it we were at "<<w->BitsWritten() <<" bits"<<std::endl;
         }
-        jpegxl::progress::popStep();
+        jpegxl::progress::popStep("Palette_col trial");
       }
       else
       {
@@ -1365,7 +1375,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         {
           //std::cout<<"Keep using default -I, without it we were at "<<w->BitsWritten() <<" bits"<<std::endl;
         }
-        jpegxl::progress::popStep();
+        jpegxl::progress::popStep("-I trial");
       }
       if( ib.HasAlpha() ) //try some Alpha options
       {
@@ -1392,6 +1402,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
           {
             //std::cout<<"Keep invisible pixels, else we get "<<w->BitsWritten() <<" bits"<<std::endl;
           }
+          jpegxl::progress::popStep("modular alpha trial");
         }
         else
         {
@@ -1419,8 +1430,8 @@ Status EncodeFrame(const CompressParams& cparams_orig,
           {
             //std::cout<<"Keep using lossy alpha"<<w->BitsWritten() <<" bits"<<std::endl;
           }
+          jpegxl::progress::popStep("vardct alpha trial");
         }
-        jpegxl::progress::popStep();
       }
       else
       {
@@ -1430,7 +1441,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       std::vector<std::unique_ptr<BitWriter>> v;
       v.push_back(std::move(bestWriter)); // <- gross :()
       writer->AppendByteAligned(v);
-      jpegxl::progress::popStep(true);
+      jpegxl::progress::popStep("e10");
       return true;
   }
   jpegxl::progress::addXY(ib.xsize(),ib.ysize());
@@ -1593,7 +1604,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         SimplifyInvisible(const_cast<Image3F*>(&ib_or_linear->color()),
                           ib.alpha(), lossless);
       }
-      jpegxl::progress::popStep();
+      jpegxl::progress::popStep("SimplifyInvisible");
     }
     if (frame_header->encoding == FrameEncoding::kVarDCT) {
       PadImageToBlockMultipleInPlace(&opsin);
@@ -1605,7 +1616,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       // after noise, if necessary.
       jpegxl::progress::addStep(jpegxl::progress::step("DownsampleImage"));
       DownsampleImage(&opsin, frame_header->upsampling);
-      jpegxl::progress::popStep();
+      jpegxl::progress::popStep("DownsampleImage");
     }
   } else {
     JXL_RETURN_IF_ERROR(lossy_frame_encoder.ComputeEncodingData(
@@ -1627,7 +1638,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       *frame_header, *ib.metadata(), &opsin, *extra_channels,
       lossy_frame_encoder.State(), cms, pool, aux_out,
       /* do_color=*/frame_header->encoding == FrameEncoding::kModular));
-  jpegxl::progress::popStep();
+  jpegxl::progress::popStep("modular_enc");
 
   writer->AppendByteAligned(lossy_frame_encoder.State()->special_frames);
   frame_header->UpdateFlag(
@@ -1658,25 +1669,19 @@ Status EncodeFrame(const CompressParams& cparams_orig,
   };
 
   if (frame_header->flags & FrameHeader::kPatches) {
-    //jpegxl::progress::addStep(jpegxl::progress::step("Finish Patches"));
     PatchDictionaryEncoder::Encode(
         lossy_frame_encoder.State()->shared.image_features.patches,
         get_output(0), kLayerDictionary, aux_out);
-    //jpegxl::progress::popStep(false);
   }
 
   if (frame_header->flags & FrameHeader::kSplines) {
-    //jpegxl::progress::addStep(jpegxl::progress::step("Finish Splines"));
     EncodeSplines(lossy_frame_encoder.State()->shared.image_features.splines,
                   get_output(0), kLayerSplines, HistogramParams(), aux_out);
-    //jpegxl::progress::popStep(false);
   }
 
   if (cparams.photon_noise_iso > 0) {
-    //jpegxl::progress::addStep(jpegxl::progress::step("Finish Iso noise"));
     lossy_frame_encoder.State()->shared.image_features.noise_params =
         SimulatePhotonNoise(ib.xsize(), ib.ysize(), cparams.photon_noise_iso);
-    //jpegxl::progress::popStep(false);
   }
   if (cparams.manual_noise.size() == NoiseParams::kNumNoisePoints) {
     for (size_t i = 0; i < NoiseParams::kNumNoisePoints; i++) {
@@ -1685,29 +1690,22 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     }
   }
   if (frame_header->flags & FrameHeader::kNoise) {
-    //jpegxl::progress::addStep(jpegxl::progress::step("Finish Noise"));
     EncodeNoise(lossy_frame_encoder.State()->shared.image_features.noise_params,
                 get_output(0), kLayerNoise, aux_out);
-    //jpegxl::progress::popStep(false);
   }
 
   JXL_RETURN_IF_ERROR(
       DequantMatricesEncodeDC(&lossy_frame_encoder.State()->shared.matrices,
                               get_output(0), kLayerQuant, aux_out));
   if (frame_header->encoding == FrameEncoding::kVarDCT) {
-    //jpegxl::progress::addStep(jpegxl::progress::step("EncodeGlobalDCInfo"));
     JXL_RETURN_IF_ERROR(
         lossy_frame_encoder.EncodeGlobalDCInfo(*frame_header, get_output(0)));
-    //jpegxl::progress::popStep(false);
   }
-  //jpegxl::progress::addStep(jpegxl::progress::step("EncodeGlobalInfo"));
   JXL_RETURN_IF_ERROR(
       modular_frame_encoder->EncodeGlobalInfo(get_output(0), aux_out));
-  //jpegxl::progress::popStep(false);
-  //jpegxl::progress::addStep(jpegxl::progress::step("enc ModularGlobal"));
+
   JXL_RETURN_IF_ERROR(modular_frame_encoder->EncodeStream(
       get_output(0), aux_out, kLayerModularGlobal, ModularStreamId::Global()));
-  //jpegxl::progress::popStep(false);
 
   const auto process_dc_group = [&](const uint32_t group_index,
                                     const size_t thread) {
@@ -1740,17 +1738,13 @@ Status EncodeFrame(const CompressParams& cparams_orig,
           ModularStreamId::ACMetadata(group_index)));
     }
   };
-  //jpegxl::progress::addStep(jpegxl::progress::step("enc DCGroup"));
   JXL_RETURN_IF_ERROR(RunOnPool(pool, 0, frame_dim.num_dc_groups,
                                 resize_aux_outs, process_dc_group,
                                 "EncodeDCGroup"));
-  //jpegxl::progress::popStep(false);
 
   if (frame_header->encoding == FrameEncoding::kVarDCT) {
-    //jpegxl::progress::addStep(jpegxl::progress::step("EncodeGlobalACInfo"));
     JXL_RETURN_IF_ERROR(lossy_frame_encoder.EncodeGlobalACInfo(
         get_output(global_ac_index), modular_frame_encoder.get()));
-    //jpegxl::progress::popStep(false);
   }
 
   std::atomic<int> num_errors{0};
@@ -1775,10 +1769,8 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       }
     }
   };
-  //jpegxl::progress::addStep(jpegxl::progress::step("EncodeGroupCoefficients"));
   JXL_RETURN_IF_ERROR(RunOnPool(pool, 0, num_groups, resize_aux_outs,
                                 process_group, "EncodeGroupCoefficients"));
-  //jpegxl::progress::popStep(false);
 
   // Resizing aux_outs to 0 also Assimilates the array.
   static_cast<void>(resize_aux_outs(0));

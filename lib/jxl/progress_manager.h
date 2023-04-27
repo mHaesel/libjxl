@@ -4,6 +4,7 @@
 #include <sstream>
 #include <vector>
 
+#include <chrono>
 namespace jpegxl{
   namespace progress
   {
@@ -24,6 +25,7 @@ namespace jpegxl{
     inline std::vector<step> steps;
     inline std::atomic<uint32_t> currentFrame{0};
     inline std::atomic<uint32_t> totalFrames{0};
+    inline std::chrono::time_point<std::chrono::high_resolution_clock> lastPrint;
     inline std::string constructProgressString()
     {
       std::stringstream ss;
@@ -45,17 +47,29 @@ namespace jpegxl{
     inline void print()
     {
       //std::cout<<"\033]0;"<<constructProgressString()<<"\007";
-      std::cout<<constructProgressString()<<std::endl;
+      //if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastPrint).count() > 100)
+      //{
+        std::cout<<constructProgressString()<<std::endl;
+        //lastPrint = std::chrono::high_resolution_clock::now();
+      //}
     }
     inline void addStep(const step& st)
     {
       steps.push_back(st);
       print();
     }
-    inline void popStep(bool printNow = true)
+    inline void popStep(const char* name = "")
     {
+      /*if(std::string(name)!=steps.back().name)
+      {
+        std::cout<<std::endl<<"-----------_ERRORSTL-------- Popping:"<<steps.back().name<<" but tried to pop:"<<name<<std::endl<<std::endl;
+      }*/
+      /*if(std::strcmp(name,steps.back().name.c_str()) != 0)
+      {
+        std::cout<<std::endl<<"-----------_ERROR-------- Popping:"<<steps.back().name<<" but tried to pop:"<<name<<std::endl<<std::endl;
+      }*/
       steps.pop_back();
-      if(printNow)print();
+      if(true)print();
     }
     inline void advanceCurrentProg(uint32_t num = 1)
     {
@@ -71,8 +85,3 @@ namespace jpegxl{
     }
   }//namespace progress
 }//namespace jpegxl
-
-/*
-  jpegxl::progress::popStep(false);
-  jpegxl::progress::addStep(jpegxl::progress::step(codecString));
-*/

@@ -47,6 +47,7 @@
 #include "lib/jxl/image_ops.h"
 #include "lib/jxl/quant_weights.h"
 
+#include "lib/jxl/progress_manager.h"
 // Set JXL_DEBUG_ADAPTIVE_QUANTIZATION to 1 to enable debugging.
 #ifndef JXL_DEBUG_ADAPTIVE_QUANTIZATION
 #define JXL_DEBUG_ADAPTIVE_QUANTIZATION 0
@@ -900,6 +901,7 @@ void FindBestQuantization(const ImageBundle& linear, const Image3F& opsin,
   if (cparams.speed_tier != SpeedTier::kTortoise) {
     iters = 2;
   }
+  jpegxl::progress::addStep(jpegxl::progress::step("iter",iters+1,0,true));
   for (int i = 0; i < iters + 1; ++i) {
     if (JXL_DEBUG_ADAPTIVE_QUANTIZATION) {
       printf("\nQuantization field:\n");
@@ -910,6 +912,7 @@ void FindBestQuantization(const ImageBundle& linear, const Image3F& opsin,
         printf("\n");
       }
     }
+    jpegxl::progress::advanceCurrentProg();
     quantizer.SetQuantField(initial_quant_dc, quant_field, &raw_quant_field);
     ImageBundle dec_linear = RoundtripImage(opsin, enc_state, cms, pool);
     float score;
@@ -1018,6 +1021,7 @@ void FindBestQuantization(const ImageBundle& linear, const Image3F& opsin,
     }
   }
   quantizer.SetQuantField(initial_quant_dc, quant_field, &raw_quant_field);
+  jpegxl::progress::popStep("iter");
 }
 
 void FindBestQuantizationMaxError(const Image3F& opsin,

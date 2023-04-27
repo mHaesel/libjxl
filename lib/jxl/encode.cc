@@ -1023,7 +1023,7 @@ jxl::Status JxlEncoderStruct::ProcessOneEnqueuedInput() {
     }
     if(last_frame)
     {
-      jpegxl::progress::popStep(true);
+      jpegxl::progress::popStep();
     }
   } else {
     // Not a frame, so is a box instead
@@ -1477,7 +1477,7 @@ void DJxlProgressAddStep(const char* name, unsigned int totalProg, unsigned int 
 }
 void DJxlProgressPopStep(bool printNow)
 {
-  jpegxl::progress::popStep(printNow);
+  jpegxl::progress::popStep();
 }
 void DJxlProgressAdvanceCurrentProg(unsigned int num)
 {
