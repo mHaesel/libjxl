@@ -1031,7 +1031,7 @@ int main(int argc, char** argv) {
     }
     jpeg_bytes = &image_data;
     DJxlProgressPopStep(false);
-    DJxlProgressAddStep("L_JPG",0,0,false);
+    DJxlProgressAddStep("JPG",0,0,false);
   }
 
   ProcessFlags(codec, ppf, jpeg_bytes, &cmdline, &args, &params);

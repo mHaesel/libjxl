@@ -1103,8 +1103,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     std::unique_ptr<BitWriter> bestWriter;
     bool stepped = false;
 
-    jpegxl::progress::addStep(jpegxl::progress::step("e10"));
-
     //only try group sizes based on the dimension of the frame
     //(0=128, 1=256, 2=512, 3=1024)
     int max_g = 3;
@@ -1169,8 +1167,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
           all_params.push_back(cparams_attempt);
       }
       } else {//If the image is smaller, lets try some more accurate stuff because it is not as slow
-        jpegxl::progress::addStep(jpegxl::progress::step("multi trial",2*2*max_g,0,true));
-        stepped=true;
+        int count{0};
         for (int tree_mode : {-1, (int)ModularOptions::TreeMode::kNoWP,
                               (int)ModularOptions::TreeMode::kDefault}) {
           if (tree_mode == -1) {
@@ -1186,9 +1183,12 @@ Status EncodeFrame(const CompressParams& cparams_orig,
             for (int g=0; g <= max_g; ++g ) {
               cparams_attempt.modular_group_size_shift = g;
               all_params.push_back(cparams_attempt);
+              ++count;
             }
           }
         }
+        jpegxl::progress::addStep(jpegxl::progress::step("multi trial",count,0,true));
+        stepped=true;
       }
     }
       std::atomic<int> num_errors{0};
@@ -1441,9 +1441,21 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       std::vector<std::unique_ptr<BitWriter>> v;
       v.push_back(std::move(bestWriter)); // <- gross :()
       writer->AppendByteAligned(v);
-      jpegxl::progress::popStep("e10");
       return true;
   }
+  std::stringstream ss;
+  ss<<" ";
+  if(ib.IsJPEG()) ss<<"LL_JPG";
+  else if (cparams.IsLossless()) ss<<"modular";
+  else ss<<"VarDCT";
+  ss <<" ";
+  if( ib.IsGray() )ss <<"gray "<<ib.metadata()->bit_depth.bits_per_sample<<"bpp";
+  else ss<<"color "<<ib.metadata()->bit_depth.bits_per_sample*3<<"bpp";
+  if(ib.HasAlpha())
+  {
+    ss<<" alpha:"<<ib.metadata()->GetAlphaBits()<<"bpp";
+  }
+  jpegxl::progress::addStringToStep(ss.str().c_str());
   jpegxl::progress::addXY(ib.xsize(),ib.ysize());
   ib.VerifyMetadata();
 
@@ -1633,12 +1645,19 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     }
   }
   // needs to happen *AFTER* VarDCT-ComputeEncodingData.
-  jpegxl::progress::addStep(jpegxl::progress::step("modular_enc"));
+  if(!cparams.IsLossless())
+  {
+    jpegxl::progress::addStep(jpegxl::progress::step("modular_enc"));
+  }
   JXL_RETURN_IF_ERROR(modular_frame_encoder->ComputeEncodingData(
       *frame_header, *ib.metadata(), &opsin, *extra_channels,
       lossy_frame_encoder.State(), cms, pool, aux_out,
       /* do_color=*/frame_header->encoding == FrameEncoding::kModular));
-  jpegxl::progress::popStep("modular_enc");
+  if(!cparams.IsLossless())
+  {
+    jpegxl::progress::popStep("modular_enc");
+  }
+  
 
   writer->AppendByteAligned(lossy_frame_encoder.State()->special_frames);
   frame_header->UpdateFlag(

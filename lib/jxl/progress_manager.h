@@ -15,6 +15,7 @@ namespace jpegxl{
       :name{name},totalProg{totalProg},prog{prog},printProg{printProg}
       {}
       std::string name;
+      std::string extra;
       uint32_t totalProg{0};
       uint32_t prog{0};
       bool printProg{false};
@@ -40,7 +41,7 @@ namespace jpegxl{
         {
           ss<<" "<<st.x<<"x"<<st.y;
         }
-        ss<<"->";
+        ss<<st.extra<<"->";
       }
       return ss.str();
     }
@@ -81,6 +82,11 @@ namespace jpegxl{
       steps.back().x = x;
       steps.back().y = y;
       steps.back().printXY = true;
+      print();
+    }
+    inline void addStringToStep(const char* string)
+    {
+      steps.back().extra = std::string(string);
       print();
     }
   }//namespace progress

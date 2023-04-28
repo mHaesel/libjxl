@@ -791,11 +791,11 @@ Status DefaultEncoderHeuristics::LossyFrameHeuristics(
     jpegxl::progress::addStep(jpegxl::progress::step("patch"));
     FindBestPatchDictionary(*opsin, enc_state, cms, pool, aux_out);
     PatchDictionaryEncoder::SubtractFrom(shared.image_features.patches, opsin);
+    jpegxl::progress::popStep("patch");
     if(cparams.patches == Override::kOn && !shared.image_features.patches.HasAny())
     {
       return JXL_FAILURE("Tried for Patches, but we do not have any, so SKIP"); //Dirty stuff, wont work with normal forced patches anymore, but meh..
     }
-    jpegxl::progress::popStep("patch");
   }
 
   jpegxl::progress::addStep(jpegxl::progress::step("globalScaleAndQuant"));
