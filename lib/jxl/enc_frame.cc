@@ -91,6 +91,23 @@ PassDefinition progressive_passes_dc_quant_ac_full_ac[] = {
      /*suitable_for_downsampling_of_at_least=*/0},
 };
 
+  jpegxl::progress::addStep(jpegxl::progress::step("cluster groups"));
+  jpegxl::progress::addStep(jpegxl::progress::step("token cost",ac.size(),0,true));
+    jpegxl::progress::advanceCurrentProg();
+  jpegxl::progress::popStep("token cost");
+  jpegxl::progress::addStep(jpegxl::progress::step("dists",ac.size(),0,true));
+    jpegxl::progress::advanceCurrentProg();
+  jpegxl::progress::popStep("dists");
+  jpegxl::progress::addStep(jpegxl::progress::step("histogramidx",limit,0,true));
+    jpegxl::progress::advanceCurrentProg();
+  jpegxl::progress::popStep("histogramidx");
+  jpegxl::progress::addStep(jpegxl::progress::step("remap",out.size(),0,true));
+    jpegxl::progress::advanceCurrentProg();
+  jpegxl::progress::popStep("remap");
+
+  jpegxl::progress::addStep(jpegxl::progress::step("re-remap"));
+  jpegxl::progress::popStep("re-remap");
+  jpegxl::progress::popStep("cluster groups");
 uint64_t FrameFlagsFromParams(const CompressParams& cparams) {
   uint64_t flags = 0;
 
@@ -952,6 +969,8 @@ class LossyFrameEncoder {
     JXL_RETURN_IF_ERROR(DequantMatricesEncode(&enc_state_->shared.matrices,
                                               writer, kLayerQuant, aux_out_,
                                               modular_frame_encoder));
+
+    jpegxl::progress::addStep(jpegxl::progress::step("build/enc histograms",enc_state_->progressive_splitter.GetNumPasses(),0,true));
     size_t num_histo_bits =
         CeilLog2Nonzero(enc_state_->shared.frame_dim.num_groups);
     if (num_histo_bits != 0) {
@@ -962,6 +981,7 @@ class LossyFrameEncoder {
 
     for (size_t i = 0; i < enc_state_->progressive_splitter.GetNumPasses();
          i++) {
+    jpegxl::progress::advanceCurrentProg();
       // Encode coefficient orders.
       size_t order_bits = 0;
       JXL_RETURN_IF_ERROR(U32Coder::CanEncode(
@@ -992,6 +1012,7 @@ class LossyFrameEncoder {
           enc_state_->passes[i].ac_tokens, &enc_state_->passes[i].codes,
           &enc_state_->passes[i].context_map, writer, kLayerAC, aux_out_);
     }
+    jpegxl::progress::popStep("build/enc histograms");
 
     return true;
   }
@@ -1445,10 +1466,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
   }
   std::stringstream ss;
   ss<<" ";
-  if(ib.IsJPEG()) ss<<"LL_JPG";
-  else if (cparams.IsLossless()) ss<<"modular";
-  else ss<<"VarDCT";
-  ss <<" ";
   if( ib.IsGray() )ss <<"gray "<<ib.metadata()->bit_depth.bits_per_sample<<"bpp";
   else ss<<"color "<<ib.metadata()->bit_depth.bits_per_sample*3<<"bpp";
   if(ib.HasAlpha())
@@ -1658,7 +1675,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     jpegxl::progress::popStep("modular_enc");
   }
   
-
+  jpegxl::progress::addStep(jpegxl::progress::step("frame header"));
   writer->AppendByteAligned(lossy_frame_encoder.State()->special_frames);
   frame_header->UpdateFlag(
       lossy_frame_encoder.State()->shared.image_features.patches.HasAny(),
@@ -1667,6 +1684,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       lossy_frame_encoder.State()->shared.image_features.splines.HasAny(),
       FrameHeader::kSplines);
   JXL_RETURN_IF_ERROR(WriteFrameHeader(*frame_header, writer, aux_out));
+  jpegxl::progress::popStep("frame header");
 
   const size_t num_passes =
       passes_enc_state->progressive_splitter.GetNumPasses();
@@ -1688,19 +1706,25 @@ Status EncodeFrame(const CompressParams& cparams_orig,
   };
 
   if (frame_header->flags & FrameHeader::kPatches) {
+    jpegxl::progress::addStep(jpegxl::progress::step("encode patches"));
     PatchDictionaryEncoder::Encode(
         lossy_frame_encoder.State()->shared.image_features.patches,
         get_output(0), kLayerDictionary, aux_out);
+    jpegxl::progress::popStep("encode patches");
   }
 
   if (frame_header->flags & FrameHeader::kSplines) {
+    jpegxl::progress::addStep(jpegxl::progress::step("encode splines"));
     EncodeSplines(lossy_frame_encoder.State()->shared.image_features.splines,
                   get_output(0), kLayerSplines, HistogramParams(), aux_out);
+    jpegxl::progress::popStep("encode splines");
   }
 
   if (cparams.photon_noise_iso > 0) {
+    jpegxl::progress::addStep(jpegxl::progress::step("simulate photon noise"));
     lossy_frame_encoder.State()->shared.image_features.noise_params =
         SimulatePhotonNoise(ib.xsize(), ib.ysize(), cparams.photon_noise_iso);
+    jpegxl::progress::popStep("simulate photon noise");
   }
   if (cparams.manual_noise.size() == NoiseParams::kNumNoisePoints) {
     for (size_t i = 0; i < NoiseParams::kNumNoisePoints; i++) {
@@ -1709,22 +1733,30 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     }
   }
   if (frame_header->flags & FrameHeader::kNoise) {
+    jpegxl::progress::addStep(jpegxl::progress::step("encode noise"));
     EncodeNoise(lossy_frame_encoder.State()->shared.image_features.noise_params,
                 get_output(0), kLayerNoise, aux_out);
+    jpegxl::progress::popStep("encode noise");
   }
 
+  jpegxl::progress::addStep(jpegxl::progress::step("encode dequant dc"));
   JXL_RETURN_IF_ERROR(
       DequantMatricesEncodeDC(&lossy_frame_encoder.State()->shared.matrices,
                               get_output(0), kLayerQuant, aux_out));
+  jpegxl::progress::popStep("encode dequant dc");
   if (frame_header->encoding == FrameEncoding::kVarDCT) {
+    jpegxl::progress::addStep(jpegxl::progress::step("encode global dc info"));
     JXL_RETURN_IF_ERROR(
         lossy_frame_encoder.EncodeGlobalDCInfo(*frame_header, get_output(0)));
+    jpegxl::progress::popStep("encode global dc info");
   }
+  jpegxl::progress::addStep(jpegxl::progress::step("encode global modular"));
   JXL_RETURN_IF_ERROR(
       modular_frame_encoder->EncodeGlobalInfo(get_output(0), aux_out));
 
   JXL_RETURN_IF_ERROR(modular_frame_encoder->EncodeStream(
       get_output(0), aux_out, kLayerModularGlobal, ModularStreamId::Global()));
+  jpegxl::progress::popStep("encode global modular info");
 
   const auto process_dc_group = [&](const uint32_t group_index,
                                     const size_t thread) {
@@ -1755,11 +1787,14 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       JXL_CHECK(modular_frame_encoder->EncodeStream(
           output, my_aux_out, kLayerControlFields,
           ModularStreamId::ACMetadata(group_index)));
+      jpegxl::progress::advanceCurrentProg();
     }
   };
+  jpegxl::progress::addStep(jpegxl::progress::step("encode DCGroup",frame_dim.num_dc_groups,0,true));
   JXL_RETURN_IF_ERROR(RunOnPool(pool, 0, frame_dim.num_dc_groups,
                                 resize_aux_outs, process_dc_group,
                                 "EncodeDCGroup"));
+  jpegxl::progress::popStep("encode DCGroup");
 
   if (frame_header->encoding == FrameEncoding::kVarDCT) {
     JXL_RETURN_IF_ERROR(lossy_frame_encoder.EncodeGlobalACInfo(
@@ -1770,7 +1805,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
   const auto process_group = [&](const uint32_t group_index,
                                  const size_t thread) {
     AuxOut* my_aux_out = aux_out ? &aux_outs[thread] : nullptr;
-
+    jpegxl::progress::advanceCurrentProg();
     for (size_t i = 0; i < num_passes; i++) {
       if (frame_header->encoding == FrameEncoding::kVarDCT) {
         if (!lossy_frame_encoder.EncodeACGroup(
@@ -1788,8 +1823,10 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       }
     }
   };
+  jpegxl::progress::addStep(jpegxl::progress::step("encode GroupCoeff",num_groups,0,true));
   JXL_RETURN_IF_ERROR(RunOnPool(pool, 0, num_groups, resize_aux_outs,
                                 process_group, "EncodeGroupCoefficients"));
+  jpegxl::progress::popStep("encode GroupCoeff");
 
   // Resizing aux_outs to 0 also Assimilates the array.
   static_cast<void>(resize_aux_outs(0));
@@ -1804,6 +1841,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
   std::vector<coeff_order_t>* permutation_ptr = nullptr;
   std::vector<coeff_order_t> permutation;
   if (cparams.centerfirst && !(num_passes == 1 && num_groups == 1)) {
+    jpegxl::progress::addStep(jpegxl::progress::step("encode centerfirst"));
     permutation_ptr = &permutation;
     // Don't permute global DC/AC or DC.
     permutation.resize(global_ac_index + 1);
@@ -1876,10 +1914,13 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     }
     group_codes = std::move(new_group_codes);
   }
+  jpegxl::progress::popStep("encode centerfirst");
 
+  jpegxl::progress::addStep(jpegxl::progress::step("write groupOffsets"));
   JXL_RETURN_IF_ERROR(
       WriteGroupOffsets(group_codes, permutation_ptr, writer, aux_out));
   writer->AppendByteAligned(group_codes);
+  jpegxl::progress::popStep("write groupOffsets");
 
   return true;
 }

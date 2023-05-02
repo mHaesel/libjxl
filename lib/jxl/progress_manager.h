@@ -72,10 +72,10 @@ namespace jpegxl{
       steps.pop_back();
       if(true)print();
     }
-    inline void advanceCurrentProg(uint32_t num = 1)
+    inline void advanceCurrentProg(uint32_t num = 1, bool printS = true)
     {
       steps.back().prog += num;
-      print();
+      if(printS)print();
     }
     inline void addXY(uint32_t x, uint32_t y)
     {

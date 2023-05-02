@@ -554,6 +554,7 @@ void PrintMode(jxl::extras::PackedPixelFile& ppf, const double decode_mps,
                jpegxl::tools::CommandLineParser& cmdline) {
   const char* mode = ModeFromArgs(args);
   const std::string distance = DistanceFromArgs(args);
+  DJxlProgressAddStep(mode,0,0,false);
   if (args.lossless_jpeg) {
     cmdline.VerbosePrintf(1, "Read JPEG image with %" PRIuS " bytes.\n",
                           num_bytes);
@@ -1082,7 +1083,7 @@ int main(int argc, char** argv) {
     stats.NotifyElapsed(t1 - t0);
     stats.SetImageSize(ppf.info.xsize, ppf.info.ysize);
   }
-
+  DJxlProgressPopStep(false);
   if (args.file_out && !args.disable_output) {
     if (!jpegxl::tools::WriteFile(args.file_out, compressed)) {
       std::cerr << "Could not write jxl file." << std::endl;

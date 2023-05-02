@@ -885,11 +885,21 @@ Status DefaultEncoderHeuristics::LossyFrameHeuristics(
                           &enc_state->shared.matrices);
   jpegxl::progress::popStep("FindBestDequant");
 
-  jpegxl::progress::addStep(jpegxl::progress::step("cfl+acs"));
+  jpegxl::progress::addStep(jpegxl::progress::step("cfl+acs",DivCeil(enc_state->shared.frame_dim.xsize_blocks, kEncTileDimInBlocks) *
+          DivCeil(enc_state->shared.frame_dim.ysize_blocks,
+                  kEncTileDimInBlocks),0,true));
   cfl_heuristics.Init(*opsin);
   acs_heuristics.Init(*opsin, enc_state);
-
+  std::chrono::time_point<std::chrono::high_resolution_clock> lastProgPrint;
   auto process_tile = [&](const uint32_t tid, const size_t thread) {
+    if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 100)
+    {
+      jpegxl::progress::advanceCurrentProg();
+      lastProgPrint = std::chrono::high_resolution_clock::now();
+    }
+    else{
+      jpegxl::progress::advanceCurrentProg(1,false);
+    }
     size_t n_enc_tiles =
         DivCeil(enc_state->shared.frame_dim.xsize_blocks, kEncTileDimInBlocks);
     size_t tx = tid % n_enc_tiles;
@@ -949,7 +959,7 @@ Status DefaultEncoderHeuristics::LossyFrameHeuristics(
         return true;
       },
       process_tile, "Enc Heuristics"));
-
+  jpegxl::progress::advanceCurrentProg(0);
   acs_heuristics.Finalize(aux_out);
   jpegxl::progress::popStep("cfl+acs");
   if (cparams.speed_tier <= SpeedTier::kHare) {

@@ -39,6 +39,8 @@
 #include "lib/jxl/pack_signed.h"
 #include "lib/jxl/patch_dictionary_internal.h"
 
+#include "lib/jxl/progress_manager.h"
+
 namespace jxl {
 
 static constexpr size_t kPatchFrameReferenceId = 3;
@@ -255,6 +257,7 @@ std::vector<PatchInfo> FindTextLikePatches(
   constexpr int64_t kPatchSide = 4;
   constexpr int64_t kExtraSide = 4;
 
+  //jpegxl::progress::addStep(jpegxl::progress::step("search",opsin.xsize() / kPatchSide,0,true));
   // Look for kPatchSide size squares, naturally aligned, that all have the same
   // pixel values.
   ImageB is_screenshot_like(DivCeil(opsin.xsize(), kPatchSide),
@@ -263,6 +266,7 @@ std::vector<PatchInfo> FindTextLikePatches(
   uint8_t* JXL_RESTRICT screenshot_row = is_screenshot_like.Row(0);
   const size_t screenshot_stride = is_screenshot_like.PixelsPerRow();
   const auto process_row = [&](const uint32_t y, size_t /* thread */) {
+    //jpegxl::progress::advanceCurrentProg();
     for (uint64_t x = 0; x < opsin.xsize() / kPatchSide; x++) {
       bool all_same = true;
       for (size_t iy = 0; iy < static_cast<size_t>(kPatchSide); iy++) {
@@ -298,6 +302,7 @@ std::vector<PatchInfo> FindTextLikePatches(
   };
   JXL_CHECK(RunOnPool(pool, 0, opsin.ysize() / kPatchSide, ThreadPool::NoInit,
                       process_row, "IsScreenshotLike"));
+  //jpegxl::progress::popStep("search");
 
   // TODO(veluca): also parallelize the rest of this function.
   if (WantDebugOutput(cparams)) {

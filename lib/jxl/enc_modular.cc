@@ -1015,6 +1015,7 @@ Status ModularFrameEncoder::PrepareEncoding(const FrameHeader& frame_header,
   } else if (cparams_.speed_tier < SpeedTier::kFalcon ||
              !cparams_.modular_mode) {
     // Avoid creating a tree with leaves that don't correspond to any pixels.
+    jpegxl::progress::addStep(jpegxl::progress::step("non-corresponding pixels"));
     std::vector<size_t> useful_splits;
     useful_splits.reserve(tree_splits_.size());
     for (size_t chunk = 0; chunk < tree_splits_.size() - 1; chunk++) {
@@ -1031,9 +1032,9 @@ Status ModularFrameEncoder::PrepareEncoding(const FrameHeader& frame_header,
     // Don't do anything if modular mode does not have any pixels in this image
     if (useful_splits.empty()) return true;
     useful_splits.push_back(tree_splits_.back());
-
+    jpegxl::progress::popStep("non-corresponding pixels");
     std::atomic_flag invalid_force_wp = ATOMIC_FLAG_INIT;
-
+    jpegxl::progress::addStep(jpegxl::progress::step("learn",0,0,true));
     std::vector<Tree> trees(useful_splits.size() - 1);
     JXL_RETURN_IF_ERROR(RunOnPool(
         pool, 0, useful_splits.size() - 1, ThreadPool::NoInit,
@@ -1102,7 +1103,10 @@ Status ModularFrameEncoder::PrepareEncoding(const FrameHeader& frame_header,
       return JXL_FAILURE("PrepareEncoding: force_no_wp with {Weighted}");
     }
     tree_.clear();
+    jpegxl::progress::popStep("learn");
+    jpegxl::progress::addStep(jpegxl::progress::step("merge trees"));
     MergeTrees(trees, useful_splits, 0, useful_splits.size() - 1, &tree_);
+    jpegxl::progress::popStep("merge trees");
   } else {
     // Fixed tree.
     size_t total_pixels = 0;
