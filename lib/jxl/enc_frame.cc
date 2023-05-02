@@ -1913,8 +1913,8 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       new_group_codes[permutation[i]] = std::move(group_codes[i]);
     }
     group_codes = std::move(new_group_codes);
+    jpegxl::progress::popStep("encode centerfirst");
   }
-  jpegxl::progress::popStep("encode centerfirst");
 
   jpegxl::progress::addStep(jpegxl::progress::step("write groupOffsets"));
   JXL_RETURN_IF_ERROR(
