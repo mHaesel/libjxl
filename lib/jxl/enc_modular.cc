@@ -907,8 +907,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
                                         ModularStreamId::Global()});
   }
   gi_channel_.resize(stream_images_.size());
-
-  jpegxl::progress::addStep(jpegxl::progress::step("prepareStreamParams"));
+  jpegxl::progress::addStep(jpegxl::progress::step("prepareStreamParams",stream_params.size(),0,true));
   JXL_RETURN_IF_ERROR(RunOnPool(
       pool, 0, stream_params.size(), ThreadPool::NoInit,
       [&](const uint32_t i, size_t /* thread */) {
@@ -1088,11 +1087,14 @@ Status ModularFrameEncoder::PrepareEncoding(const FrameHeader& frame_header,
               range, local_multiplier_info, group_pixel_count,
               channel_pixel_count, pixel_samples, diff_samples,
               stream_options_[start].max_property_values);
+          jpegxl::progress::addStep(jpegxl::progress::step("modGenComp",stop-start,0,true));
           for (size_t i = start; i < stop; i++) {
+            jpegxl::progress::advanceCurrentProg();
             JXL_CHECK(ModularGenericCompress(
                 stream_images_[i], stream_options_[i], /*writer=*/nullptr,
                 /*aux_out=*/nullptr, 0, i, &tree_samples, &total_pixels));
           }
+          jpegxl::progress::popStep("modGenComp");
           // TODO(veluca): parallelize more.
           trees[chunk] =
               LearnTree(std::move(tree_samples), total_pixels,
@@ -1334,6 +1336,7 @@ Status ModularFrameEncoder::PrepareStreamParams(const Rect& rect,
                                                 int minShift, int maxShift,
                                                 const ModularStreamId& stream,
                                                 bool do_color, PassesEncoderState* enc_state) {
+  jpegxl::progress::advanceCurrentProg();
   size_t stream_id = stream.ID(frame_dim_);
   Image& full_image = stream_images_[0];
   const size_t xsize = rect.xsize();
@@ -1375,6 +1378,7 @@ Status ModularFrameEncoder::PrepareStreamParams(const Rect& rect,
     if (cparams_.butteraugli_distance == 0.f && cparams_.palette_colors != 0 &&
         cparams_.speed_tier < SpeedTier::kCheetah) {
       // all-channel palette (e.g. RGBA)
+      //jpegxl::progress::addStep(jpegxl::progress::step("all_palette"));
       if (gi.channel.size() - gi.nb_meta_channels > 1) {
         Transform maybe_palette(TransformId::kPalette);
         maybe_palette.begin_c = gi.nb_meta_channels;
@@ -1401,6 +1405,7 @@ Status ModularFrameEncoder::PrepareStreamParams(const Rect& rect,
         enc_state->shared.image_features.usesAllChannelPal || 
         do_transform(gi, maybe_palette_3, weighted::Header());
       }
+      //jpegxl::progress::popStep("all_palette");
     }
 
     // Local channel palette
@@ -1410,7 +1415,9 @@ Status ModularFrameEncoder::PrepareStreamParams(const Rect& rect,
         !(cparams_.responsive && cparams_.decoding_speed_tier >= 1)) {
       // single channel palette (like FLIF's ChannelCompact)
       size_t nb_channels = gi.channel.size() - gi.nb_meta_channels;
+      //jpegxl::progress::addStep(jpegxl::progress::step("single_chan_pal",nb_channels,0,true));
       for (size_t i = 0; i < nb_channels; i++) {
+        //jpegxl::progress::advanceCurrentProg();
         int32_t min, max;
         compute_minmax(gi.channel[gi.nb_meta_channels + i], &min, &max);
         int64_t colors = (int64_t)max - min + 1;
@@ -1429,6 +1436,7 @@ Status ModularFrameEncoder::PrepareStreamParams(const Rect& rect,
         enc_state->shared.image_features.usesXPal ||
         do_transform(gi, maybe_palette_1, weighted::Header());
       }
+      //jpegxl::progress::popStep("single_chan_pal");
     }
   }
 
@@ -1466,6 +1474,7 @@ Status ModularFrameEncoder::PrepareStreamParams(const Rect& rect,
         nb_rcts_to_try = 19;
         break;
     }
+    //jpegxl::progress::addStep(jpegxl::progress::step("rct",nb_rcts_to_try,0,true));
     float best_cost = std::numeric_limits<float>::max();
     size_t best_rct = 0;
     // These should be 19 actually different transforms; the remaining ones
@@ -1477,6 +1486,7 @@ Status ModularFrameEncoder::PrepareStreamParams(const Rect& rect,
                   1 * 7 + 2, 2 * 7 + 1, 2 * 7 + 2, 2 * 7 + 3, 4 * 7 + 4,
                   4 * 7 + 5, 0 * 7 + 2, 0 * 7 + 1, 0 * 7 + 3}) {
       if (nb_rcts_to_try == 0) break;
+      //jpegxl::progress::advanceCurrentProg();
       sg.rct_type = i;
       nb_rcts_to_try--;
       if (do_transform(gi, sg, weighted::Header())) {
@@ -1490,9 +1500,12 @@ Status ModularFrameEncoder::PrepareStreamParams(const Rect& rect,
         gi.transform.pop_back();
       }
     }
+    //jpegxl::progress::popStep("rct");
     // Apply the best RCT to the image for future encoding.
+    //jpegxl::progress::addStep(jpegxl::progress::step("apply rct"));
     sg.rct_type = best_rct;
     do_transform(gi, sg, weighted::Header());
+    //jpegxl::progress::popStep("apply rct");
   } else {
     // No need to try anything, just use the default options.
   }
@@ -1506,15 +1519,18 @@ Status ModularFrameEncoder::PrepareStreamParams(const Rect& rect,
       (stream_options_[stream_id].predictor == Predictor::Weighted ||
        stream_options_[stream_id].predictor == Predictor::Best ||
        stream_options_[stream_id].predictor == Predictor::Variable)) {
+    //jpegxl::progress::addStep(jpegxl::progress::step("wp modes",nb_wp_modes,0,true));
     float best_cost = std::numeric_limits<float>::max();
     stream_options_[stream_id].wp_mode = 0;
     for (size_t i = 0; i < nb_wp_modes; i++) {
+      //jpegxl::progress::advanceCurrentProg();
       float cost = EstimateWPCost(gi, i);
       if (cost < best_cost) {
         best_cost = cost;
         stream_options_[stream_id].wp_mode = i;
       }
     }
+    //jpegxl::progress::popStep("wp modes");
   }
   return true;
 }
