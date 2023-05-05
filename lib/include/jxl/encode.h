@@ -1525,6 +1525,7 @@ JXL_EXPORT void JxlEncoderCollectStats(JxlEncoderFrameSettings* frame_settings,
 JXL_EXPORT void DJxlProgressAddStep(const char* name, unsigned int totalProg, unsigned int prog, bool printProg);
 JXL_EXPORT void DJxlProgressPopStep(bool printNow);
 JXL_EXPORT void DJxlProgressAdvanceCurrentProg(unsigned int num);
+JXL_EXPORT void DJxlProgressSetQuiet();
 
 #if defined(__cplusplus) || defined(c_plusplus)
 }

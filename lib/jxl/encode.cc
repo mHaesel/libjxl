@@ -1483,7 +1483,10 @@ void DJxlProgressAdvanceCurrentProg(unsigned int num)
 {
   jpegxl::progress::advanceCurrentProg(num);
 }
-
+void DJxlProgressSetQuiet()
+{
+  jpegxl::progress::quiet=true;
+}
 JxlEncoderStatus JxlEncoderSetExtraChannelDistance(
     JxlEncoderFrameSettings* frame_settings, size_t index, float distance) {
   if (index >= frame_settings->enc->metadata.m.num_extra_channels) {

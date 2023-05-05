@@ -991,6 +991,7 @@ int main(int argc, char** argv) {
   // Depending on flags-settings, we want to either load a JPEG and
   // faithfully convert it to JPEG XL, or load (JPEG or non-JPEG)
   // pixel data.
+  if(args.quiet || args.num_threads != 0){DJxlProgressSetQuiet();}
   DJxlProgressAddStep("Decode Source",0,0,false);
   std::vector<uint8_t> image_data;
   jxl::extras::PackedPixelFile ppf;

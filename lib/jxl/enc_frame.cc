@@ -1144,6 +1144,8 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     //Only try patches as a last resort kind of thing, they are slow
     if(ib.IsJPEG())
     {
+      jpegxl::progress::addStep(jpegxl::progress::step("llJ trial"));
+      stepped = true;
       for (SpeedTier e : {SpeedTier::kTortoise})
       {
         cparams_attempt.speed_tier = e;
@@ -1151,6 +1153,8 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       }
     }else if (!cparams.IsLossless())
     {
+      jpegxl::progress::addStep(jpegxl::progress::step("trial"));
+      stepped = true;
       cparams_attempt.speed_tier = SpeedTier::kTortoise;
       all_params.push_back(cparams_attempt);
     } else
@@ -1160,25 +1164,16 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       cparams_attempt.palette_colors = 1<<10;
       cparams_attempt.patches = Override::kOff;
       cparams_attempt.keep_invisible = Override::kOn;
-      /*if(ib.IsGray())
+      /*cparams_attempt.options.max_properties = 0;
+      if(!ib.IsGray())
       {
-        cparams_attempt.options.max_properties = 0;//speedup gray encoding without ratio loss
+        cparams_attempt.options.max_properties = 2; //n channels - 1
       }
-      else
+      if(ib.HasAlpha())
       {
-        cparams_attempt.options.max_properties = 2;//
-      }
-      //to test
-      //if ib.hasAlpha, we could add +1 to the max_properties value
-      //In very limited testing adding the extra_property for the alpha channel was harmful to the compression ratio
-*/
-      //we do not do pal_trials for now, if we want to do them, we should base them on the number of colors in the frame (ie only try 1024 pal, if num_cols is smaller equal to 1024)
-      //so, we would always absically have the choice of no pal, the default max of 1024 and a number equal to the cols in the image or larger.
-      //TODO check difference between pal with exact amount of colors in the image and pal,that only partial or larger, who knows what could happen
+        ++cparams_attempt.options.max_properties;//alpha is one extra channel
+      }*/
 
-      //X is used per channel to try a local channel pal. The default value is ok as a high point, but trying without it is also worth it
-      //Theoretically we could try the transform per channel (I think), in which case we would go for 0.f and 100.f as trials. does that make sense?
-      //-E >0 (properties) can sometimes worsen ratio slightly, but thats ok, it helps almost always
       if(max_g >= 3)
       {
         jpegxl::progress::addStep(jpegxl::progress::step("-g trial",max_g,0,true));

@@ -23,6 +23,7 @@ namespace jpegxl{
       uint32_t y{0};
       bool printXY{false};
     };
+    inline bool quiet{false};
     inline std::vector<step> steps;
     inline std::atomic<uint32_t> currentFrame{0};
     inline std::atomic<uint32_t> totalFrames{0};
@@ -47,6 +48,7 @@ namespace jpegxl{
     }
     inline void print()
     {
+      if(quiet)return;
       //std::cout<<"\033]0;"<<constructProgressString()<<"\007";
       //if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastPrint).count() > 100)
       //{
@@ -56,11 +58,13 @@ namespace jpegxl{
     }
     inline void addStep(const step& st)
     {
+      if(quiet)return;
       steps.push_back(st);
       print();
     }
     inline void popStep(const char* name = "")
     {
+      if(quiet)return;
       /*if(std::string(name)!=steps.back().name)
       {
         std::cout<<std::endl<<"-----------_ERRORSTL-------- Popping:"<<steps.back().name<<" but tried to pop:"<<name<<std::endl<<std::endl;
@@ -74,11 +78,13 @@ namespace jpegxl{
     }
     inline void advanceCurrentProg(uint32_t num = 1, bool printS = true)
     {
+      if(quiet)return;
       steps.back().prog += num;
       if(printS)print();
     }
     inline void addXY(uint32_t x, uint32_t y)
     {
+      if(quiet)return;
       steps.back().x = x;
       steps.back().y = y;
       steps.back().printXY = true;
@@ -86,6 +92,7 @@ namespace jpegxl{
     }
     inline void addStringToStep(const char* string)
     {
+      if(quiet)return;
       steps.back().extra = std::string(string);
       print();
     }
