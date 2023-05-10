@@ -1164,7 +1164,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       cparams_attempt.palette_colors = 1<<10;
       cparams_attempt.patches = Override::kOff;
       cparams_attempt.keep_invisible = Override::kOn;
-      /*cparams_attempt.options.max_properties = 0;
+      cparams_attempt.options.max_properties = 0;
       if(!ib.IsGray())
       {
         cparams_attempt.options.max_properties = 2; //n channels - 1
@@ -1172,7 +1172,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       if(ib.HasAlpha())
       {
         ++cparams_attempt.options.max_properties;//alpha is one extra channel
-      }*/
+      }
 
       if(max_g >= 3)
       {
