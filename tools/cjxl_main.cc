@@ -589,23 +589,6 @@ bool IsJPG(const std::vector<uint8_t>& image_data) {
           image_data[1] == 0xD8);
 }
 
-  std::string codecString;
-  switch(codec)
-  {
-      case jxl::extras::Codec::kUnknown:
-      default:
-      codecString="Unknown";
-      break;
-      case jxl::extras::Codec::kPNG:codecString="PNG";break;
-      case jxl::extras::Codec::kPNM:codecString="PNM";break;
-      case jxl::extras::Codec::kPGX:codecString="PGX";break;
-      case jxl::extras::Codec::kJPG:codecString="JPG";break;
-      case jxl::extras::Codec::kGIF:codecString="GIF";break;
-      case jxl::extras::Codec::kEXR:codecString="EXR";break;
-  }
-  DJxlProgressPopStep(false);
-  DJxlProgressAddStep(codecString.c_str(),0,0,false);
-
 using flag_check_fn = std::function<std::string(int64_t)>;
 using flag_check_float_fn = std::function<std::string(float)>;
 
@@ -1032,9 +1015,25 @@ int main(int argc, char** argv) {
                 << std::endl;
     }
     jpeg_bytes = &image_data;
-    DJxlProgressPopStep(false);
-    DJxlProgressAddStep("JPG",0,0,false);
   }
+
+  std::string codecString;
+  switch(codec)
+  {
+      case jxl::extras::Codec::kUnknown:
+      default:
+      codecString="Unknown";
+      break;
+      case jxl::extras::Codec::kPNG:codecString="PNG";break;
+      case jxl::extras::Codec::kJXL:codecString="JXL";break;
+      case jxl::extras::Codec::kPNM:codecString="PNM";break;
+      case jxl::extras::Codec::kPGX:codecString="PGX";break;
+      case jxl::extras::Codec::kJPG:codecString="JPG";break;
+      case jxl::extras::Codec::kGIF:codecString="GIF";break;
+      case jxl::extras::Codec::kEXR:codecString="EXR";break;
+  }
+  DJxlProgressPopStep(false);
+  DJxlProgressAddStep(codecString.c_str(),0,0,false);
 
   ProcessFlags(codec, ppf, jpeg_bytes, &cmdline, &args, &params);
 
