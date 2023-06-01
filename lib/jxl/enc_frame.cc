@@ -1160,8 +1160,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     } else
     {
       cparams_attempt.speed_tier = SpeedTier::kTortoise;
-      cparams_attempt.options.nb_repeats = 0.5f;
-      cparams_attempt.palette_colors = 1<<10;
       cparams_attempt.patches = Override::kOff;
       cparams_attempt.keep_invisible = Override::kOn;
       //cparams_attempt.options.max_properties = 0;
