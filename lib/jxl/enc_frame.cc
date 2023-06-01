@@ -1182,13 +1182,14 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       }
       } else {//If the image is smaller, lets try some more accurate stuff because it is not as slow
         int count{0};
+        auto prev_repeats = cparams_attempt.options.nb_repeats;
         for (int tree_mode : {-1, (int)ModularOptions::TreeMode::kNoWP,
                               (int)ModularOptions::TreeMode::kDefault}) {
           if (tree_mode == -1) {
             // LZ77 only
             cparams_attempt.options.nb_repeats = 0;
           } else {
-            cparams_attempt.options.nb_repeats = 0.5f;
+            cparams_attempt.options.nb_repeats = prev_repeats;
             cparams_attempt.options.wp_tree_mode =
                 static_cast<ModularOptions::TreeMode>(tree_mode);
           }
