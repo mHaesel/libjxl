@@ -91,23 +91,6 @@ PassDefinition progressive_passes_dc_quant_ac_full_ac[] = {
      /*suitable_for_downsampling_of_at_least=*/0},
 };
 
-  jpegxl::progress::addStep(jpegxl::progress::step("cluster groups"));
-  jpegxl::progress::addStep(jpegxl::progress::step("token cost",ac.size(),0,true));
-    jpegxl::progress::advanceCurrentProg();
-  jpegxl::progress::popStep("token cost");
-  jpegxl::progress::addStep(jpegxl::progress::step("dists",ac.size(),0,true));
-    jpegxl::progress::advanceCurrentProg();
-  jpegxl::progress::popStep("dists");
-  jpegxl::progress::addStep(jpegxl::progress::step("histogramidx",limit,0,true));
-    jpegxl::progress::advanceCurrentProg();
-  jpegxl::progress::popStep("histogramidx");
-  jpegxl::progress::addStep(jpegxl::progress::step("remap",out.size(),0,true));
-    jpegxl::progress::advanceCurrentProg();
-  jpegxl::progress::popStep("remap");
-
-  jpegxl::progress::addStep(jpegxl::progress::step("re-remap"));
-  jpegxl::progress::popStep("re-remap");
-  jpegxl::progress::popStep("cluster groups");
 uint64_t FrameFlagsFromParams(const CompressParams& cparams) {
   uint64_t flags = 0;
 
