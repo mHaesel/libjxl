@@ -1189,7 +1189,7 @@ Status ModularFrameEncoder::EncodeGlobalInfo(BitWriter* writer,
             ? (cparams_.speed_tier >= SpeedTier::kFalcon
                    ? HistogramParams::LZ77Method::kRLE
                    : HistogramParams::LZ77Method::kLZ77)
-            : HistogramParams::LZ77Method::kNone;
+            : HistogramParams::LZ77Method::kLZ77;
     // Near-lossless DC, as well as modular mode, require choosing hybrid uint
     // more carefully.
     if ((!extra_dc_precision.empty() && extra_dc_precision[0] != 0) ||
