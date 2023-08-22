@@ -1103,7 +1103,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     bool usesYPal{false};
     bool tryForPatches = cparams_orig.patches != Override::kOff && cparams_orig.IsLossless(); //essentially to skip patches when encoding patches
     size_t bestTask{0};
-    const bool evenSlower = false;
     std::unique_ptr<BitWriter> bestWriter;
     bool stepped = false;
 
@@ -1124,7 +1123,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
     }
 
     CompressParams cparams_attempt = cparams_orig;
-    //Only try patches as a last resort kind of thing, they are slow
     if(ib.IsJPEG())
     {
       jpegxl::progress::addStep(jpegxl::progress::step("llJ trial"));
@@ -1198,7 +1196,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
             PassesEncoderState state;
             std::chrono::steady_clock::time_point startTime;
             std::chrono::steady_clock::time_point stopTime;
-            int stepThis = stepCount;
             ++stepCount;
             startTime = std::chrono::steady_clock::now();
             if (!EncodeFrame(all_params[task], frame_info, metadata, ib, &state,
@@ -1229,6 +1226,41 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       {
         jpegxl::progress::popStep();//this could be one of two different steps above
       }
+      //try predictors
+      /*jpegxl::progress::addStep(jpegxl::progress::step("predictors",15,0,true));
+      for (Predictor pred : {
+           Predictor::Zero,
+           Predictor::Left,
+           Predictor::Top,
+           Predictor::Average0,
+           Predictor::Select,
+           Predictor::Gradient,
+           Predictor::Weighted,
+           Predictor::TopRight,
+           Predictor::TopLeft,
+           Predictor::LeftLeft,
+           Predictor::Average1,
+           Predictor::Average2,
+           Predictor::Average3,
+           Predictor::Average4,
+           Predictor::Best})
+      {
+          cparams_attempt = cparams;
+          cparams_attempt.options.predictor = pred;
+          auto w = std::unique_ptr<BitWriter>(new BitWriter);
+          PassesEncoderState state;
+          JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
+                                        cms, pool, w.get(), aux_out));
+          if (w->BitsWritten() < bestSize) {
+            bestSize = w->BitsWritten();
+            cparams.options.predictor = cparams_attempt.options.predictor;
+            usesAllPal = state.shared.image_features.usesAllChannelPal;
+            usesXPal = state.shared.image_features.usesXPal;
+            usesYPal = state.shared.image_features.usesYPal;
+            bestWriter = std::move(w);
+          }
+      }
+      jpegxl::progress::popStep("predictors");*/
       //now actually try omega slow patches
       if(tryForPatches)
       {
@@ -1349,7 +1381,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       {
         //std::cout<<"All_Palette was not used"<<std::endl;
       }
-      if(evenSlower && cparams.IsLossless())
+      if(cparams.IsLossless())
       {
         //try sampling more cols
         //std::cout<<"Try sampling more cols (-I 100)"<<std::endl;
@@ -1362,7 +1394,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
                                         cms, pool, w.get(), aux_out));
         if (w->BitsWritten() < bestSize) {
           bestSize = w->BitsWritten();
-          std::cout<<"Slower -I was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
           cparams.options.nb_repeats = 1.0f;
           usesAllPal = state.shared.image_features.usesAllChannelPal;
           usesXPal = state.shared.image_features.usesXPal;
@@ -1435,6 +1466,36 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       {
         //std::cout<<"No alpha channel available for alpha trials"<<std::endl;
       }
+      cparams_attempt = cparams;
+      if(cparams_attempt.options.max_properties == 0)
+      {
+        if(!ib.IsGray())//max_properties are pretty slow
+        {
+          cparams_attempt.options.max_properties = 2; //n channels - 1
+        }
+        if(ib.HasAlpha())
+        {
+          ++cparams_attempt.options.max_properties;//alpha is one extra channel
+        }
+        if(cparams_attempt.options.max_properties > 0)
+        {
+          jpegxl::progress::addStep(jpegxl::progress::step("-E trial"));
+          auto w = std::unique_ptr<BitWriter>(new BitWriter);
+          PassesEncoderState state;
+          JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
+                                          cms, pool, w.get(), aux_out));
+          if (w->BitsWritten() < bestSize) {
+            bestSize = w->BitsWritten();
+            cparams.options.max_properties = cparams_attempt.options.max_properties;
+            usesAllPal = state.shared.image_features.usesAllChannelPal;
+            usesXPal = state.shared.image_features.usesXPal;
+            usesYPal = state.shared.image_features.usesYPal;
+            bestWriter = std::move(w);
+          }
+          jpegxl::progress::popStep("-E trial");
+        }
+      }
+
       //writer was zero-padded before calling this func, so just append?
       std::vector<std::unique_ptr<BitWriter>> v;
       v.push_back(std::move(bestWriter)); // <- gross :()
