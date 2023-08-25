@@ -1143,48 +1143,12 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       cparams_attempt.speed_tier = SpeedTier::kTortoise;
       cparams_attempt.patches = Override::kOff;
       cparams_attempt.keep_invisible = Override::kOn;
-      //cparams_attempt.options.max_properties = 0;
-      /*if(!ib.IsGray())//max_properties are pretty slow
-      {
-        cparams_attempt.options.max_properties = 2; //n channels - 1
-      }
-      if(ib.HasAlpha())
-      {
-        ++cparams_attempt.options.max_properties;//alpha is one extra channel
-      }*/
-
-      if(max_g >= 3)
-      {
-        jpegxl::progress::addStep(jpegxl::progress::step("-g trial",max_g,0,true));
-        stepped=true;
-        for (int g=0; g <= max_g; ++g ) {
-          cparams_attempt.modular_group_size_shift = g;
-          all_params.push_back(cparams_attempt);
-      }
-      } else {//If the image is smaller, lets try some more accurate stuff because it is not as slow
-        int count{0};
-        auto prev_repeats = cparams_attempt.options.nb_repeats;
-        for (int tree_mode : {-1, (int)ModularOptions::TreeMode::kNoWP,
-                              (int)ModularOptions::TreeMode::kDefault}) {
-          if (tree_mode == -1) {
-            // LZ77 only
-            cparams_attempt.options.nb_repeats = 0;
-          } else {
-            cparams_attempt.options.nb_repeats = prev_repeats;
-            cparams_attempt.options.wp_tree_mode =
-                static_cast<ModularOptions::TreeMode>(tree_mode);
-          }
-          for (Predictor pred : {Predictor::Zero, Predictor::Variable}) {
-            cparams_attempt.options.predictor = pred;
-            for (int g=0; g <= max_g; ++g ) {
-              cparams_attempt.modular_group_size_shift = g;
-              all_params.push_back(cparams_attempt);
-              ++count;
-            }
-          }
-        }
-        jpegxl::progress::addStep(jpegxl::progress::step("multi trial",count,0,true));
-        stepped=true;
+      cparams_attempt.options.predictor = Predictor::Variable;
+      jpegxl::progress::addStep(jpegxl::progress::step("-g trial",max_g,0,true));
+      stepped=true;
+      for (int g=0; g <= max_g; ++g ) {
+        cparams_attempt.modular_group_size_shift = g;
+        all_params.push_back(cparams_attempt);
       }
     }
       std::atomic<int> num_errors{0};
@@ -1227,23 +1191,24 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         jpegxl::progress::popStep();//this could be one of two different steps above
       }
       //try predictors
-      /*jpegxl::progress::addStep(jpegxl::progress::step("predictors",15,0,true));
+      jpegxl::progress::addStep(jpegxl::progress::step("predictors",15,0,true));
       for (Predictor pred : {
-           Predictor::Zero,
+           //Predictor::Zero,
            Predictor::Left,
            Predictor::Top,
-           Predictor::Average0,
-           Predictor::Select,
-           Predictor::Gradient,
-           Predictor::Weighted,
-           Predictor::TopRight,
-           Predictor::TopLeft,
-           Predictor::LeftLeft,
-           Predictor::Average1,
-           Predictor::Average2,
-           Predictor::Average3,
-           Predictor::Average4,
-           Predictor::Best})
+           //Predictor::Average0,
+           Predictor::Select
+           //Predictor::Gradient,
+           //Predictor::Weighted,
+           //Predictor::TopRight,
+           //Predictor::TopLeft,
+           //Predictor::LeftLeft
+           //Predictor::Average1,
+           //Predictor::Average2,
+           //Predictor::Average3,
+           //Predictor::Average4,
+           //Predictor::Best
+           })
       {
           cparams_attempt = cparams;
           cparams_attempt.options.predictor = pred;
@@ -1260,7 +1225,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
             bestWriter = std::move(w);
           }
       }
-      jpegxl::progress::popStep("predictors");*/
+      jpegxl::progress::popStep("predictors");
       //now actually try omega slow patches
       if(tryForPatches)
       {
@@ -1351,7 +1316,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       {
         //std::cout<<"channel_colors_pre_transform_percent (-Y) was not used"<<std::endl;
       }
-      if(false/*usesAllPal*/)
+      if(usesAllPal)
       {
         //The logic is, if we only have the above kinds of pals (is that possible?) without all_pal, we dont need duplicate trials
         //std::cout<<"An All_Palette Transform was used, try encoding without it (implicitly disabling -X and -Y)"<<std::endl;
@@ -1383,9 +1348,10 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       }
       if(cparams.IsLossless())
       {
+        {
         //try sampling more cols
         //std::cout<<"Try sampling more cols (-I 100)"<<std::endl;
-        jpegxl::progress::addStep(jpegxl::progress::step("-I trial"));
+        jpegxl::progress::addStep(jpegxl::progress::step("-I1 trial"));
         cparams_attempt = cparams;
         cparams_attempt.options.nb_repeats = 1.0f;
         auto w = std::unique_ptr<BitWriter>(new BitWriter);
@@ -1404,7 +1370,31 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         {
           //std::cout<<"Keep using default -I, without it we were at "<<w->BitsWritten() <<" bits"<<std::endl;
         }
-        jpegxl::progress::popStep("-I trial");
+        jpegxl::progress::popStep("-I1 trial");
+        //try lz77 only
+        }
+        {
+        jpegxl::progress::addStep(jpegxl::progress::step("-I0 trial"));
+        cparams_attempt = cparams;
+        cparams_attempt.options.nb_repeats = 0.0f;
+        auto w = std::unique_ptr<BitWriter>(new BitWriter);
+        PassesEncoderState state;
+        JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
+                                        cms, pool, w.get(), aux_out));
+        if (w->BitsWritten() < bestSize) {
+          bestSize = w->BitsWritten();
+          cparams.options.nb_repeats = 0.0f;
+          usesAllPal = state.shared.image_features.usesAllChannelPal;
+          usesXPal = state.shared.image_features.usesXPal;
+          usesYPal = state.shared.image_features.usesYPal;
+          bestWriter = std::move(w);
+        }
+        else
+        {
+          //std::cout<<"Keep using default -I, without it we were at "<<w->BitsWritten() <<" bits"<<std::endl;
+        }
+        jpegxl::progress::popStep("-I0 trial");
+        }
       }
       if( ib.HasAlpha() ) //try some Alpha options
       {
@@ -1494,6 +1484,46 @@ Status EncodeFrame(const CompressParams& cparams_orig,
           }
           jpegxl::progress::popStep("-E trial");
         }
+      }
+      cparams_attempt = cparams;
+      if(true)//better condition somehow?
+      {
+        cparams_attempt.options.wp_tree_mode = ModularOptions::TreeMode::kNoWP;
+        {
+          jpegxl::progress::addStep(jpegxl::progress::step("noWP trial"));
+          auto w = std::unique_ptr<BitWriter>(new BitWriter);
+          PassesEncoderState state;
+          JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
+                                          cms, pool, w.get(), aux_out));
+          if (w->BitsWritten() < bestSize) {
+            bestSize = w->BitsWritten();
+            cparams.options.wp_tree_mode = cparams_attempt.options.wp_tree_mode;
+            usesAllPal = state.shared.image_features.usesAllChannelPal;
+            usesXPal = state.shared.image_features.usesXPal;
+            usesYPal = state.shared.image_features.usesYPal;
+            bestWriter = std::move(w);
+          }
+          jpegxl::progress::popStep("noWp trial");
+        }
+      }
+
+      if(jpegxl::progress::quiet)//yeah, intentional
+      {
+        std::cout<<"----- Best params -----"<<
+        "\nheight:"<<ib.ysize()<<
+        "\nwidth:"<<ib.xsize()<<
+        "\ng:"<<cparams.modular_group_size_shift<<
+        "\nP"<<static_cast<int>(cparams.options.predictor)<<
+        "\nE:"<<cparams.options.max_properties<<
+        "\nI:"<<cparams.options.nb_repeats<<
+        "\nX:"<<cparams_attempt.channel_colors_percent<<" used?="<<usesXPal<<
+        "\nY:"<<cparams_attempt.channel_colors_pre_transform_percent<<" used?="<<usesYPal<<
+        "\nPatches:"<<static_cast<int>(cparams_attempt.patches)<<
+        "\nkeepInvis:"<<static_cast<int>(cparams.keep_invisible)<<
+        "\npalCols:"<<cparams_attempt.palette_colors<<" used?="<<usesAllPal<<
+        "\ntreeMode:"<<static_cast<int>(cparams_attempt.options.wp_tree_mode)<<
+        "\n----- end -----"<<
+        std::endl;
       }
 
       //writer was zero-padded before calling this func, so just append?
