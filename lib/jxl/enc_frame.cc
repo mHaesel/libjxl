@@ -1156,31 +1156,55 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       JXL_RETURN_IF_ERROR(RunOnPool(
           pool, 0, all_params.size(), ThreadPool::NoInit,
           [&](size_t task, size_t) {
-            auto w = std::unique_ptr<BitWriter>(new BitWriter);
-            PassesEncoderState state;
-            std::chrono::steady_clock::time_point startTime;
-            std::chrono::steady_clock::time_point stopTime;
-            ++stepCount;
-            startTime = std::chrono::steady_clock::now();
-            if (!EncodeFrame(all_params[task], frame_info, metadata, ib, &state,
-                            cms, nullptr, w.get(), aux_out)) {
-              num_errors.fetch_add(1, std::memory_order_relaxed);
-              return;
-            }
-            stopTime=std::chrono::steady_clock::now();
-            auto Duration = std::chrono::duration_cast<std::chrono::milliseconds>(stopTime-startTime);
-            std::lock_guard<std::mutex> lock(m);
-            if(w->BitsWritten() < bestSize)
+
             {
-              bestSize = w->BitsWritten();
-              usesPatches = state.shared.image_features.patches.HasAny();
-              usesAllPal = state.shared.image_features.usesAllChannelPal;
-              usesXPal = state.shared.image_features.usesXPal;
-              usesYPal = state.shared.image_features.usesYPal;
-              bestTask = task;
-              bestWriter = std::move(w);
+              auto w = std::unique_ptr<BitWriter>(new BitWriter);
+              PassesEncoderState state;
+              ++stepCount;
+              if (!EncodeFrame(all_params[task], frame_info, metadata, ib, &state,
+                              cms, nullptr, w.get(), aux_out)) {
+                num_errors.fetch_add(1, std::memory_order_relaxed);
+                return;
+              }
+              std::lock_guard<std::mutex> lock(m);
+              if(w->BitsWritten() < bestSize)
+              {
+                bestSize = w->BitsWritten();
+                usesPatches = state.shared.image_features.patches.HasAny();
+                usesAllPal = state.shared.image_features.usesAllChannelPal;
+                usesXPal = state.shared.image_features.usesXPal;
+                usesYPal = state.shared.image_features.usesYPal;
+                bestTask = task;
+                bestWriter = std::move(w);
+              }
             }
             jpegxl::progress::advanceCurrentProg();
+            if(usesAllPal)
+            {
+              //also try P 0
+              cparams_attempt = all_params[task];
+              cparams_attempt.options.predictor = Predictor::Zero;
+              auto w = std::unique_ptr<BitWriter>(new BitWriter);
+              PassesEncoderState state;
+              ++stepCount;
+              if (!EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
+                              cms, nullptr, w.get(), aux_out)) {
+                num_errors.fetch_add(1, std::memory_order_relaxed);
+                return;
+              }
+              std::lock_guard<std::mutex> lock(m);
+              if(w->BitsWritten() < bestSize)
+              {
+                bestSize = w->BitsWritten();
+                usesPatches = state.shared.image_features.patches.HasAny();
+                usesAllPal = state.shared.image_features.usesAllChannelPal;
+                usesXPal = state.shared.image_features.usesXPal;
+                usesYPal = state.shared.image_features.usesYPal;
+                bestTask = task;
+                all_params[task].options.predictor = Predictor::Zero;
+                bestWriter = std::move(w);
+              }
+            }
           },
           "Compress kGlacier"));
       JXL_RETURN_IF_ERROR(num_errors.load(std::memory_order_relaxed) == 0);
@@ -1191,11 +1215,11 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         jpegxl::progress::popStep();//this could be one of two different steps above
       }
       //try predictors
-      if(cparams.IsLossless())
+      /*if(cparams.IsLossless())
       {
         jpegxl::progress::addStep(jpegxl::progress::step("predictors",15,0,true));
         for (Predictor pred : {
-            Predictor::Zero,
+            //Predictor::Zero,
             Predictor::Left,
             Predictor::Top,
             //Predictor::Average0,
@@ -1232,7 +1256,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
             }
         }
         jpegxl::progress::popStep("predictors");
-      }
+      }*/
       //now actually try omega slow patches
       if(tryForPatches)
       {
