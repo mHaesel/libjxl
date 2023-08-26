@@ -1191,41 +1191,48 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         jpegxl::progress::popStep();//this could be one of two different steps above
       }
       //try predictors
-      jpegxl::progress::addStep(jpegxl::progress::step("predictors",15,0,true));
-      for (Predictor pred : {
-           //Predictor::Zero,
-           Predictor::Left,
-           Predictor::Top,
-           //Predictor::Average0,
-           Predictor::Select
-           //Predictor::Gradient,
-           //Predictor::Weighted,
-           //Predictor::TopRight,
-           //Predictor::TopLeft,
-           //Predictor::LeftLeft
-           //Predictor::Average1,
-           //Predictor::Average2,
-           //Predictor::Average3,
-           //Predictor::Average4,
-           //Predictor::Best
-           })
+      if(cparams.IsLossless())
       {
-          cparams_attempt = cparams;
-          cparams_attempt.options.predictor = pred;
-          auto w = std::unique_ptr<BitWriter>(new BitWriter);
-          PassesEncoderState state;
-          JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
-                                        cms, pool, w.get(), aux_out));
-          if (w->BitsWritten() < bestSize) {
-            bestSize = w->BitsWritten();
-            cparams.options.predictor = cparams_attempt.options.predictor;
-            usesAllPal = state.shared.image_features.usesAllChannelPal;
-            usesXPal = state.shared.image_features.usesXPal;
-            usesYPal = state.shared.image_features.usesYPal;
-            bestWriter = std::move(w);
-          }
+        jpegxl::progress::addStep(jpegxl::progress::step("predictors",15,0,true));
+        for (Predictor pred : {
+            Predictor::Zero,
+            Predictor::Left,
+            Predictor::Top,
+            //Predictor::Average0,
+            Predictor::Select
+            //Predictor::Gradient,
+            //Predictor::Weighted,
+            //Predictor::TopRight,
+            //Predictor::TopLeft,
+            //Predictor::LeftLeft
+            //Predictor::Average1,
+            //Predictor::Average2,
+            //Predictor::Average3,
+            //Predictor::Average4,
+            //Predictor::Best
+            })
+        {
+            if(pred == Predictor::Zero && !usesAllPal)
+            {
+              continue;//skip because too slow... :()
+            }
+            cparams_attempt = cparams;
+            cparams_attempt.options.predictor = pred;
+            auto w = std::unique_ptr<BitWriter>(new BitWriter);
+            PassesEncoderState state;
+            JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
+                                          cms, pool, w.get(), aux_out));
+            if (w->BitsWritten() < bestSize) {
+              bestSize = w->BitsWritten();
+              cparams.options.predictor = cparams_attempt.options.predictor;
+              usesAllPal = state.shared.image_features.usesAllChannelPal;
+              usesXPal = state.shared.image_features.usesXPal;
+              usesYPal = state.shared.image_features.usesYPal;
+              bestWriter = std::move(w);
+            }
+        }
+        jpegxl::progress::popStep("predictors");
       }
-      jpegxl::progress::popStep("predictors");
       //now actually try omega slow patches
       if(tryForPatches)
       {
@@ -1486,7 +1493,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         }
       }
       cparams_attempt = cparams;
-      if(true)//better condition somehow?
+      if(cparams.IsLossless())//better condition somehow?
       {
         cparams_attempt.options.wp_tree_mode = ModularOptions::TreeMode::kNoWP;
         {
