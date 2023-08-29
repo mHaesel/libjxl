@@ -1488,7 +1488,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         //std::cout<<"No alpha channel available for alpha trials"<<std::endl;
       }
       cparams_attempt = cparams;
-      if(cparams_attempt.options.max_properties == 0)
+      if(cparams_attempt.options.max_properties == 0 && cparams.IsLossless())
       {
         if(!ib.IsGray())//max_properties are pretty slow
         {
