@@ -1214,49 +1214,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       {
         jpegxl::progress::popStep();//this could be one of two different steps above
       }
-      //try predictors
-      /*if(cparams.IsLossless())
-      {
-        jpegxl::progress::addStep(jpegxl::progress::step("predictors",15,0,true));
-        for (Predictor pred : {
-            //Predictor::Zero,
-            Predictor::Left,
-            Predictor::Top,
-            //Predictor::Average0,
-            Predictor::Select
-            //Predictor::Gradient,
-            //Predictor::Weighted,
-            //Predictor::TopRight,
-            //Predictor::TopLeft,
-            //Predictor::LeftLeft
-            //Predictor::Average1,
-            //Predictor::Average2,
-            //Predictor::Average3,
-            //Predictor::Average4,
-            //Predictor::Best
-            })
-        {
-            if(pred == Predictor::Zero && !usesAllPal)
-            {
-              continue;//skip because too slow... :()
-            }
-            cparams_attempt = cparams;
-            cparams_attempt.options.predictor = pred;
-            auto w = std::unique_ptr<BitWriter>(new BitWriter);
-            PassesEncoderState state;
-            JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
-                                          cms, pool, w.get(), aux_out));
-            if (w->BitsWritten() < bestSize) {
-              bestSize = w->BitsWritten();
-              cparams.options.predictor = cparams_attempt.options.predictor;
-              usesAllPal = state.shared.image_features.usesAllChannelPal;
-              usesXPal = state.shared.image_features.usesXPal;
-              usesYPal = state.shared.image_features.usesYPal;
-              bestWriter = std::move(w);
-            }
-        }
-        jpegxl::progress::popStep("predictors");
-      }*/
       //now actually try omega slow patches
       if(tryForPatches)
       {
@@ -1516,8 +1473,56 @@ Status EncodeFrame(const CompressParams& cparams_orig,
           jpegxl::progress::popStep("-E trial");
         }
       }
+      //try predictors
+      if(cparams.IsLossless())
+      {
+        jpegxl::progress::addStep(jpegxl::progress::step("predictors",12,0,true));
+        for (Predictor pred : {
+            //Predictor::Zero,
+            Predictor::Left,
+            Predictor::Top,
+            //Predictor::Average0,
+            Predictor::Select,
+            Predictor::Gradient,
+            Predictor::Weighted
+            //Predictor::TopRight,
+            //Predictor::TopLeft,
+            //Predictor::LeftLeft,
+            //Predictor::Average1,
+            //Predictor::Average2,
+            //Predictor::Average3,
+            //Predictor::Average4
+            })
+        {
+            cparams_attempt = cparams;
+            if(pred == Predictor::Weighted)
+            {
+              cparams_attempt.options.wp_tree_mode = ModularOptions::TreeMode::kWPOnly;
+            }
+            if(pred == Predictor::Gradient)
+            {
+              cparams_attempt.options.wp_tree_mode = ModularOptions::TreeMode::kGradientOnly;
+            }
+            cparams_attempt.options.predictor = pred;
+            auto w = std::unique_ptr<BitWriter>(new BitWriter);
+            PassesEncoderState state;
+            JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
+                                          cms, pool, w.get(), aux_out));
+            if (w->BitsWritten() < bestSize) {
+              bestSize = w->BitsWritten();
+              cparams.options.predictor = cparams_attempt.options.predictor;
+              cparams.options.wp_tree_mode = cparams_attempt.options.wp_tree_mode;
+              usesAllPal = state.shared.image_features.usesAllChannelPal;
+              usesXPal = state.shared.image_features.usesXPal;
+              usesYPal = state.shared.image_features.usesYPal;
+              bestWriter = std::move(w);
+            }
+            jpegxl::progress::advanceCurrentProg();
+        }
+        jpegxl::progress::popStep("predictors");
+      }
       cparams_attempt = cparams;
-      if(cparams.IsLossless())//better condition somehow?
+      if(false && cparams.IsLossless() && cparams.options.predictor == Predictor::Variable)
       {
         cparams_attempt.options.wp_tree_mode = ModularOptions::TreeMode::kNoWP;
         {
@@ -1547,12 +1552,12 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         "\nP"<<static_cast<int>(cparams.options.predictor)<<
         "\nE:"<<cparams.options.max_properties<<
         "\nI:"<<cparams.options.nb_repeats<<
-        "\nX:"<<cparams_attempt.channel_colors_percent<<" used?="<<usesXPal<<
-        "\nY:"<<cparams_attempt.channel_colors_pre_transform_percent<<" used?="<<usesYPal<<
-        "\nPatches:"<<static_cast<int>(cparams_attempt.patches)<<
+        "\nX:"<<cparams.channel_colors_percent<<" used?="<<usesXPal<<
+        "\nY:"<<cparams.channel_colors_pre_transform_percent<<" used?="<<usesYPal<<
+        "\nPatches:"<<static_cast<int>(cparams.patches)<<
         "\nkeepInvis:"<<static_cast<int>(cparams.keep_invisible)<<
-        "\npalCols:"<<cparams_attempt.palette_colors<<" used?="<<usesAllPal<<
-        "\ntreeMode:"<<static_cast<int>(cparams_attempt.options.wp_tree_mode)<<
+        "\npalCols:"<<cparams.palette_colors<<" used?="<<usesAllPal<<
+        "\ntreeMode:"<<static_cast<int>(cparams.options.wp_tree_mode)<<
         "\n----- end -----"<<
         std::endl;
       }
