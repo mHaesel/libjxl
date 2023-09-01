@@ -1156,7 +1156,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       JXL_RETURN_IF_ERROR(RunOnPool(
           pool, 0, all_params.size(), ThreadPool::NoInit,
           [&](size_t task, size_t) {
-
             {
               auto w = std::unique_ptr<BitWriter>(new BitWriter);
               PassesEncoderState state;
@@ -1178,7 +1177,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
                 bestWriter = std::move(w);
               }
             }
-            jpegxl::progress::advanceCurrentProg();
             if(usesAllPal)
             {
               //also try P 0
@@ -1205,6 +1203,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
                 bestWriter = std::move(w);
               }
             }
+            jpegxl::progress::advanceCurrentProg();
           },
           "Compress kGlacier"));
       JXL_RETURN_IF_ERROR(num_errors.load(std::memory_order_relaxed) == 0);
@@ -1245,6 +1244,28 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       {
         //std::cout<<"skip activating Patches, this is already a Patch / or disabled in cli"<<std::endl;
       }
+
+      if( cparams.patches == Override::kOn && cparams.options.predictor == Predictor::Zero)
+      {
+        //I found the case were Zeor without Patches was better than variable, but with Patches variable was better, so....
+        jpegxl::progress::addStep(jpegxl::progress::step("patch_Z_was_better"));
+        cparams_attempt = cparams;
+        cparams_attempt.options.predictor = Predictor::Variable;
+        auto w = std::unique_ptr<BitWriter>(new BitWriter);
+        PassesEncoderState state;
+        JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
+                                      cms, pool, w.get(), aux_out));
+        if (w->BitsWritten() < bestSize) {
+          bestSize = w->BitsWritten();
+          cparams.options.predictor = cparams_attempt.options.predictor;
+          usesAllPal = state.shared.image_features.usesAllChannelPal;
+          usesXPal = state.shared.image_features.usesXPal;
+          usesYPal = state.shared.image_features.usesYPal;
+          bestWriter = std::move(w);
+        }
+        jpegxl::progress::popStep("patch_Z_was_better");
+      }
+
       //pal stuff
       if(usesXPal)
       {
@@ -1520,27 +1541,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
             jpegxl::progress::advanceCurrentProg();
         }
         jpegxl::progress::popStep("predictors");
-      }
-      cparams_attempt = cparams;
-      if(false && cparams.IsLossless() && cparams.options.predictor == Predictor::Variable)
-      {
-        cparams_attempt.options.wp_tree_mode = ModularOptions::TreeMode::kNoWP;
-        {
-          jpegxl::progress::addStep(jpegxl::progress::step("noWP trial"));
-          auto w = std::unique_ptr<BitWriter>(new BitWriter);
-          PassesEncoderState state;
-          JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
-                                          cms, pool, w.get(), aux_out));
-          if (w->BitsWritten() < bestSize) {
-            bestSize = w->BitsWritten();
-            cparams.options.wp_tree_mode = cparams_attempt.options.wp_tree_mode;
-            usesAllPal = state.shared.image_features.usesAllChannelPal;
-            usesXPal = state.shared.image_features.usesXPal;
-            usesYPal = state.shared.image_features.usesYPal;
-            bestWriter = std::move(w);
-          }
-          jpegxl::progress::popStep("noWp trial");
-        }
       }
 
       if(jpegxl::progress::quiet)//yeah, intentional
