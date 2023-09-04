@@ -28,6 +28,8 @@
 #include "lib/jxl/enc_huffman.h"
 #include "lib/jxl/fields.h"
 
+#include "lib/jxl/progress_manager.h"
+
 namespace jxl {
 
 namespace {
@@ -1451,6 +1453,8 @@ void ApplyLZ77_Optimal(const HistogramParams& params, size_t num_contexts,
 void ApplyLZ77(const HistogramParams& params, size_t num_contexts,
                const std::vector<std::vector<Token>>& tokens, LZ77Params& lz77,
                std::vector<std::vector<Token>>& tokens_lz77) {
+  jpegxl::progress::addStep(jpegxl::progress::step("LZ77"));
+  
   lz77.enabled = false;
   if (params.force_huffman) {
     lz77.min_symbol = std::min(PREFIX_MAX_ALPHABET_SIZE - 32, 512);
@@ -1468,6 +1472,7 @@ void ApplyLZ77(const HistogramParams& params, size_t num_contexts,
   } else {
     JXL_UNREACHABLE("Not implemented");
   }
+  jpegxl::progress::popStep("LZ77");
 }
 }  // namespace
 

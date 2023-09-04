@@ -1224,7 +1224,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         if(!EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
                                         cms, pool, w.get(), aux_out))
         {
-          //std::cout<<"No Patches found, so skip further coding"<<std::endl;
+          //do nothing for now
         }
         else if (w->BitsWritten() < bestSize) {
           bestSize = w->BitsWritten();
@@ -1234,21 +1234,14 @@ Status EncodeFrame(const CompressParams& cparams_orig,
           usesYPal = state.shared.image_features.usesYPal;
           bestWriter = std::move(w);
         }
-        else
-        {
-          //std::cout<<"Do not use Patches, with them we were at "<<w->BitsWritten() <<" bits"<<std::endl;
-        }
         jpegxl::progress::popStep("patch trial");
-      }
-      else
-      {
-        //std::cout<<"skip activating Patches, this is already a Patch / or disabled in cli"<<std::endl;
       }
 
       if( cparams.patches == Override::kOn && cparams.options.predictor == Predictor::Zero)
       {
-        //I found the case were Zeor without Patches was better than variable, but with Patches variable was better, so....
-        jpegxl::progress::addStep(jpegxl::progress::step("patch_Z_was_better"));
+        //I found the case were Zero without Patches was better than variable, but with Patches variable was better, so....
+        //This is rare, so I do not mind the slowness
+        jpegxl::progress::addStep(jpegxl::progress::step("patch_Z_V"));
         cparams_attempt = cparams;
         cparams_attempt.options.predictor = Predictor::Variable;
         auto w = std::unique_ptr<BitWriter>(new BitWriter);
@@ -1263,13 +1256,12 @@ Status EncodeFrame(const CompressParams& cparams_orig,
           usesYPal = state.shared.image_features.usesYPal;
           bestWriter = std::move(w);
         }
-        jpegxl::progress::popStep("patch_Z_was_better");
+        jpegxl::progress::popStep("patch_Z_V");
       }
 
       //pal stuff
       if(usesXPal)
       {
-        //std::cout<<"channel_colors_percent (-X) was used, try encoding without it"<<std::endl;
         jpegxl::progress::addStep(jpegxl::progress::step("-X trial"));
         cparams_attempt = cparams;
         cparams_attempt.channel_colors_percent = 0.f;
@@ -1279,7 +1271,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
                                         cms, pool, w.get(), aux_out));
         if (w->BitsWritten() < bestSize) {
           bestSize = w->BitsWritten();
-          //std::cout<<"Not -X was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
           cparams.channel_colors_percent = 0.f;
           usesAllPal = state.shared.image_features.usesAllChannelPal;
           usesXPal = state.shared.image_features.usesXPal;
@@ -1288,17 +1279,11 @@ Status EncodeFrame(const CompressParams& cparams_orig,
         }
         else
         {
-          //std::cout<<"Keep using -X, without them we were at "<<w->BitsWritten() <<" bits"<<std::endl;
         }
         jpegxl::progress::popStep("-X trial");
       }
-      else
-      {
-        //std::cout<<"channel_colors_percent (-X) was not used"<<std::endl;
-      }
       if(usesYPal)
       {
-        //std::cout<<"channel_colors_pre_transform_percent (-Y) was used, try encoding without it"<<std::endl;
         jpegxl::progress::addStep(jpegxl::progress::step("-Y trial"));
         cparams_attempt = cparams;
         cparams_attempt.channel_colors_pre_transform_percent = 0.f;
@@ -1308,27 +1293,16 @@ Status EncodeFrame(const CompressParams& cparams_orig,
                                         cms, pool, w.get(), aux_out));
         if (w->BitsWritten() < bestSize) {
           bestSize = w->BitsWritten();
-          //std::cout<<"Not -Y was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
           cparams.channel_colors_pre_transform_percent = 0.f;
           usesAllPal = state.shared.image_features.usesAllChannelPal;
           usesXPal = state.shared.image_features.usesXPal;
           usesYPal = state.shared.image_features.usesYPal;
           bestWriter = std::move(w);
         }
-        else
-        {
-          //std::cout<<"Keep using -Y, without them we were at "<<w->BitsWritten() <<" bits"<<std::endl;
-        }
         jpegxl::progress::popStep("-Y trial");
-      }
-      else
-      {
-        //std::cout<<"channel_colors_pre_transform_percent (-Y) was not used"<<std::endl;
       }
       if(usesAllPal)
       {
-        //The logic is, if we only have the above kinds of pals (is that possible?) without all_pal, we dont need duplicate trials
-        //std::cout<<"An All_Palette Transform was used, try encoding without it (implicitly disabling -X and -Y)"<<std::endl;
         jpegxl::progress::addStep(jpegxl::progress::step("Palette_col trial"));
         cparams_attempt = cparams;
         cparams_attempt.palette_colors = 0;
@@ -1338,28 +1312,17 @@ Status EncodeFrame(const CompressParams& cparams_orig,
                                         cms, pool, w.get(), aux_out));
         if (w->BitsWritten() < bestSize) {
           bestSize = w->BitsWritten();
-          //std::cout<<"No Palette was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
           cparams.palette_colors = 0;
           usesAllPal = state.shared.image_features.usesAllChannelPal;
           usesXPal = state.shared.image_features.usesXPal;
           usesYPal = state.shared.image_features.usesYPal;
           bestWriter = std::move(w);
         }
-        else
-        {
-          //std::cout<<"Keep using Palette, without it we were at "<<w->BitsWritten() <<" bits"<<std::endl;
-        }
         jpegxl::progress::popStep("Palette_col trial");
-      }
-      else
-      {
-        //std::cout<<"All_Palette was not used"<<std::endl;
       }
       if(cparams.IsLossless())
       {
         {
-        //try sampling more cols
-        //std::cout<<"Try sampling more cols (-I 100)"<<std::endl;
         jpegxl::progress::addStep(jpegxl::progress::step("-I1 trial"));
         cparams_attempt = cparams;
         cparams_attempt.options.nb_repeats = 1.0f;
@@ -1374,10 +1337,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
           usesXPal = state.shared.image_features.usesXPal;
           usesYPal = state.shared.image_features.usesYPal;
           bestWriter = std::move(w);
-        }
-        else
-        {
-          //std::cout<<"Keep using default -I, without it we were at "<<w->BitsWritten() <<" bits"<<std::endl;
         }
         jpegxl::progress::popStep("-I1 trial");
         //try lz77 only
@@ -1398,10 +1357,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
           usesYPal = state.shared.image_features.usesYPal;
           bestWriter = std::move(w);
         }
-        else
-        {
-          //std::cout<<"Keep using default -I, without it we were at "<<w->BitsWritten() <<" bits"<<std::endl;
-        }
         jpegxl::progress::popStep("-I0 trial");
         }
       }
@@ -1409,8 +1364,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       {
         if( cparams.IsLossless() )
         {
-          //std::cout<<"Simple Alpha Trials (keep_invisible)"<<std::endl;
-          jpegxl::progress::addStep(jpegxl::progress::step("modular alpha trial"));
+          jpegxl::progress::addStep(jpegxl::progress::step("alpha"));
           cparams_attempt = cparams;
           cparams_attempt.keep_invisible = Override::kOff;
           auto w = std::unique_ptr<BitWriter>(new BitWriter);
@@ -1419,24 +1373,17 @@ Status EncodeFrame(const CompressParams& cparams_orig,
                                           cms, pool, w.get(), aux_out));
           if (w->BitsWritten() < bestSize) {
             bestSize = w->BitsWritten();
-            //std::cout<<"not keeping invisible pixels was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
-            cparams.keep_invisible = Override::kOn;
+            cparams.keep_invisible = Override::kOff;
             usesAllPal = state.shared.image_features.usesAllChannelPal;
             usesXPal = state.shared.image_features.usesXPal;
             usesYPal = state.shared.image_features.usesYPal;
             bestWriter = std::move(w);
           }
-          else
-          {
-            //std::cout<<"Keep invisible pixels, else we get "<<w->BitsWritten() <<" bits"<<std::endl;
-          }
-          jpegxl::progress::popStep("modular alpha trial");
+          jpegxl::progress::popStep("alpha");
         }
-        else
+        else //==lossy
         {
-          //try lossless alpha
-          //std::cout<<"Simple Alpha Trials (lossless alpha distance)"<<std::endl;
-          jpegxl::progress::addStep(jpegxl::progress::step("vardct alpha trial"));
+          jpegxl::progress::addStep(jpegxl::progress::step("alpha"));
           cparams_attempt = cparams;
           cparams_attempt.ec_distance[0] = 0.0f;
           cparams_attempt.options.predictor = Predictor::Variable;
@@ -1446,7 +1393,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
                                           cms, pool, w.get(), aux_out));
           if (w->BitsWritten() < bestSize) {
             bestSize = w->BitsWritten();
-            //std::cout<<"Lossless Alpha was better :  "<<w->BitsWritten() <<" bits"<<std::endl;
             cparams.ec_distance[0] = 0.0f;
             cparams.options.predictor = Predictor::Variable;
             usesAllPal = state.shared.image_features.usesAllChannelPal;
@@ -1454,21 +1400,13 @@ Status EncodeFrame(const CompressParams& cparams_orig,
             usesYPal = state.shared.image_features.usesYPal;
             bestWriter = std::move(w);
           }
-          else
-          {
-            //std::cout<<"Keep using lossy alpha"<<w->BitsWritten() <<" bits"<<std::endl;
-          }
-          jpegxl::progress::popStep("vardct alpha trial");
+          jpegxl::progress::popStep("alpha");
         }
-      }
-      else
-      {
-        //std::cout<<"No alpha channel available for alpha trials"<<std::endl;
       }
       cparams_attempt = cparams;
       if(cparams_attempt.options.max_properties == 0 && cparams.IsLossless())
       {
-        if(!ib.IsGray())//max_properties are pretty slow
+        if(!ib.IsGray())//max_properties are pretty slow, even on gray, where it is useless
         {
           cparams_attempt.options.max_properties = 2; //n channels - 1
         }
@@ -1497,7 +1435,7 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       //try predictors
       if(cparams.IsLossless())
       {
-        jpegxl::progress::addStep(jpegxl::progress::step("predictors",12,0,true));
+        jpegxl::progress::addStep(jpegxl::progress::step("predictors",5,0,true));
         for (Predictor pred : {
             //Predictor::Zero,
             Predictor::Left,
