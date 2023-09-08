@@ -1435,7 +1435,6 @@ Status EncodeFrame(const CompressParams& cparams_orig,
       //try predictors
       if(cparams.IsLossless())
       {
-        jpegxl::progress::addStep(jpegxl::progress::step("predictors",5,0,true));
         for (Predictor pred : {
             //Predictor::Zero,
             Predictor::Left,
@@ -1453,32 +1452,53 @@ Status EncodeFrame(const CompressParams& cparams_orig,
             //Predictor::Average4
             })
         {
-            cparams_attempt = cparams;
-            if(pred == Predictor::Weighted)
-            {
-              cparams_attempt.options.wp_tree_mode = ModularOptions::TreeMode::kWPOnly;
-            }
-            if(pred == Predictor::Gradient)
-            {
-              cparams_attempt.options.wp_tree_mode = ModularOptions::TreeMode::kGradientOnly;
-            }
-            cparams_attempt.options.predictor = pred;
-            auto w = std::unique_ptr<BitWriter>(new BitWriter);
-            PassesEncoderState state;
-            JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
-                                          cms, pool, w.get(), aux_out));
-            if (w->BitsWritten() < bestSize) {
-              bestSize = w->BitsWritten();
-              cparams.options.predictor = cparams_attempt.options.predictor;
-              cparams.options.wp_tree_mode = cparams_attempt.options.wp_tree_mode;
-              usesAllPal = state.shared.image_features.usesAllChannelPal;
-              usesXPal = state.shared.image_features.usesXPal;
-              usesYPal = state.shared.image_features.usesYPal;
-              bestWriter = std::move(w);
-            }
-            jpegxl::progress::advanceCurrentProg();
+          std::string predString;
+          switch (pred)
+          {
+            case Predictor::Zero: predString="Zero";break;
+            case Predictor::Left: predString="Left";break;
+            case Predictor::Top: predString="Top";break;
+            case Predictor::Average0: predString="Average0";break;
+            case Predictor::Select: predString="Select";break;
+            case Predictor::Gradient: predString="Gradient";break;
+            case Predictor::Weighted: predString="Weighted";break;
+            case Predictor::TopRight: predString="TopRight";break;
+            case Predictor::TopLeft: predString="TopLeft";break;
+            case Predictor::LeftLeft: predString="LeftLeft";break;
+            case Predictor::Average1: predString="Average1";break;
+            case Predictor::Average2: predString="Average2";break;
+            case Predictor::Average3: predString="Average3";break;
+            case Predictor::Average4: predString="Average4";break;
+            case Predictor::Best: predString="Best";break;
+            case Predictor::Variable: predString="Variable";break;
+            default:predString="invalidPred";break;
+          }
+          jpegxl::progress::addStep(jpegxl::progress::step(predString));
+          cparams_attempt = cparams;
+          if(pred == Predictor::Weighted)
+          {
+            cparams_attempt.options.wp_tree_mode = ModularOptions::TreeMode::kWPOnly;
+          }
+          if(pred == Predictor::Gradient)
+          {
+            cparams_attempt.options.wp_tree_mode = ModularOptions::TreeMode::kGradientOnly;
+          }
+          cparams_attempt.options.predictor = pred;
+          auto w = std::unique_ptr<BitWriter>(new BitWriter);
+          PassesEncoderState state;
+          JXL_RETURN_IF_ERROR(EncodeFrame(cparams_attempt, frame_info, metadata, ib, &state,
+                                        cms, pool, w.get(), aux_out));
+          if (w->BitsWritten() < bestSize) {
+            bestSize = w->BitsWritten();
+            cparams.options.predictor = cparams_attempt.options.predictor;
+            cparams.options.wp_tree_mode = cparams_attempt.options.wp_tree_mode;
+            usesAllPal = state.shared.image_features.usesAllChannelPal;
+            usesXPal = state.shared.image_features.usesXPal;
+            usesYPal = state.shared.image_features.usesYPal;
+            bestWriter = std::move(w);
+          }
+          jpegxl::progress::popStep(predString.c_str());
         }
-        jpegxl::progress::popStep("predictors");
       }
 
       if(jpegxl::progress::quiet)//yeah, intentional
