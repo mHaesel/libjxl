@@ -1923,7 +1923,7 @@ HistogramParams HistogramParams::ForModular(
       params.uint_method = HistogramParams::HybridUintMethod::kNone;
     }
   } else if (cparams.speed_tier <= SpeedTier::kTortoise) {
-    params.lz77_method = HistogramParams::LZ77Method::kOptimal;
+    params.lz77_method = HistogramParams::LZ77Method::kLZ77;
   } else {
     params.lz77_method = HistogramParams::LZ77Method::kLZ77;
   }
