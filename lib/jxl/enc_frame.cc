@@ -2193,10 +2193,42 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       cparams.jpeg_keep_xmp = false;
       cparams.jpeg_keep_jumbf = false;
       cparams.options.predictor = Predictor::Variable;
+      auto jpegDataMasterCopy = frame_data.TakeJPEGData();//JpegData is moved internally, so we copy it for each trial
+      jpegxl::progress::addStep(jpegxl::progress::step("e",static_cast<int>(SpeedTier::kLightning)+1,static_cast<int>(SpeedTier::kGlacier),true));
+      for(int i = static_cast<int>(SpeedTier::kGlacier); i <= static_cast<int>(SpeedTier::kLightning) ;++i)
       {
         auto trialParams = cparams;
-        JXL_RUN_FRAME_TRIAL("jpeg");
+        trialParams.speed_tier = static_cast<SpeedTier>(i);
+        auto copiedJpegData = jpegDataMasterCopy;
+        frame_data.SetJPEGData(std::move(copiedJpegData));
+        JXL_RUN_FRAME_TRIAL("e"<<10-i);
+        
+        if(i <= static_cast<int>(SpeedTier::kKitten))
+        {
+          //nb_repeats influences these speedTiers, so try stuff with them too
+          {
+            jpegxl::progress::addStep(jpegxl::progress::step("I1"));
+            auto copiedJpegData = jpegDataMasterCopy;
+            frame_data.SetJPEGData(std::move(copiedJpegData));
+            auto trialParams = cparams;
+            trialParams.options.nb_repeats = 1.0f;
+            JXL_RUN_FRAME_TRIAL("I00"); 
+            jpegxl::progress::popStep("I1");
+          }
+          {
+            jpegxl::progress::addStep(jpegxl::progress::step("I0"));
+            auto copiedJpegData = jpegDataMasterCopy;
+            frame_data.SetJPEGData(std::move(copiedJpegData));
+            auto trialParams = cparams;
+            trialParams.options.nb_repeats = 0.0f;
+            JXL_RUN_FRAME_TRIAL("I0"); 
+            jpegxl::progress::popStep("I0");
+          }
+        }
+        //TODO some other prog advancement is leaking through to here!!!
+        //jpegxl::progress::advanceCurrentProg();
       }
+      jpegxl::progress::popStep("e");
     }
     else
     if(cparams.IsLossless())
