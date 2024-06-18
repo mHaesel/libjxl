@@ -2194,8 +2194,8 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       cparams.jpeg_keep_jumbf = false;
       cparams.options.predictor = Predictor::Variable;
       auto jpegDataMasterCopy = frame_data.TakeJPEGData();//JpegData is moved internally, so we copy it for each trial
-      jpegxl::progress::addStep(jpegxl::progress::step("e",static_cast<int>(SpeedTier::kLightning)+1,static_cast<int>(SpeedTier::kGlacier),true));
-      for(int i = static_cast<int>(SpeedTier::kGlacier); i <= static_cast<int>(SpeedTier::kLightning) ;++i)
+      jpegxl::progress::addStep(jpegxl::progress::step("e",static_cast<int>(SpeedTier::kTortoise)+1,static_cast<int>(SpeedTier::kGlacier),true));
+      for(int i = static_cast<int>(SpeedTier::kGlacier); i <= static_cast<int>(SpeedTier::kTortoise) ;++i) //only e 10 and e 9 seem to be worth it
       {
         auto trialParams = cparams;
         trialParams.speed_tier = static_cast<SpeedTier>(i);
@@ -2214,15 +2214,6 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
             trialParams.options.nb_repeats = 1.0f;
             JXL_RUN_FRAME_TRIAL("I00"); 
             jpegxl::progress::popStep("I1");
-          }
-          {
-            jpegxl::progress::addStep(jpegxl::progress::step("I0"));
-            auto copiedJpegData = jpegDataMasterCopy;
-            frame_data.SetJPEGData(std::move(copiedJpegData));
-            auto trialParams = cparams;
-            trialParams.options.nb_repeats = 0.0f;
-            JXL_RUN_FRAME_TRIAL("I0"); 
-            jpegxl::progress::popStep("I0");
           }
         }
         //TODO some other prog advancement is leaking through to here!!!
