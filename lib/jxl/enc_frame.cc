@@ -2153,7 +2153,7 @@ Status EncodeFrameOneShot(JxlMemoryManager* memory_manager,
   return true;
 }
 
-#define JXL_RUN_FRAME_TRIAL( name )do{bool prevAllPal = frame_data.usesAllPal; bool prevXPal = frame_data.usesXPal; bool prevYPal = frame_data.usesYPal;  std::vector<uint8_t> output(64); uint8_t* next_out = output.data();  size_t avail_out = output.size();  JxlEncoderOutputProcessorWrapper output_processor(memory_manager);  output_processor.SetAvailOut(&next_out, &avail_out); JXL_RETURN_IF_ERROR(EncodeFrame(memory_manager, trialParams, frame_info, metadata, frame_data, cms,pool, &output_processor, aux_out)); output_processor.SetFinalizedPosition(); output_processor.CopyOutput(output, next_out, avail_out); /*std::cout<<name<<" size was"<<output.size()<<"and allPal was "<<frame_data.usesAllPal<<std::endl;*/ if(output.size() < bestSize) {    bestSize = output.size();   bestOutput = trialVecPtr(new trialVec(std::move(output)));   cparams = trialParams; }else {    frame_data.usesAllPal = prevAllPal;    frame_data.usesXPal = prevXPal;frame_data.usesYPal = prevYPal;  }}while(0);
+#define JXL_RUN_FRAME_TRIAL( name )do{bool prevAllPal = frame_data.usesAllPal; bool prevXPal = frame_data.usesXPal; bool prevYPal = frame_data.usesYPal;  std::vector<uint8_t> output(64); uint8_t* next_out = output.data();  size_t avail_out = output.size();  JxlEncoderOutputProcessorWrapper output_processor(memory_manager);  JXL_RETURN_IF_ERROR(output_processor.SetAvailOut(&next_out, &avail_out)); JXL_RETURN_IF_ERROR(EncodeFrame(memory_manager, trialParams, frame_info, metadata, frame_data, cms,pool, &output_processor, aux_out)); JXL_RETURN_IF_ERROR(output_processor.SetFinalizedPosition()); JXL_RETURN_IF_ERROR(output_processor.CopyOutput(output, next_out, avail_out)); /*std::cout<<output.size()<<" || "<<name<<std::endl*/; if(output.size() < bestSize) {    bestSize = output.size();   bestOutput = trialVecPtr(new trialVec(std::move(output)));   cparams = trialParams; }else {    frame_data.usesAllPal = prevAllPal;    frame_data.usesXPal = prevXPal;frame_data.usesYPal = prevYPal;  }}while(0);
 using trialVecPtr = std::unique_ptr<std::vector<uint8_t>>;
 using trialVec = std::vector<uint8_t>;
 
@@ -2193,31 +2193,30 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       cparams.jpeg_keep_xmp = false;
       cparams.jpeg_keep_jumbf = false;
       cparams.options.predictor = Predictor::Variable;
+      cparams.options.histogram_params.clustering = HistogramParams::ClusteringType::kBest;
+      cparams.options.histogram_params.uint_method = HistogramParams::HybridUintMethod::kBest;
+      cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kLZ77;
+      cparams.options.histogram_params.ans_histogram_strategy = HistogramParams::ANSHistogramStrategy::kPrecise;
       auto jpegDataMasterCopy = frame_data.TakeJPEGData();//JpegData is moved internally, so we copy it for each trial
       jpegxl::progress::addStep(jpegxl::progress::step("e",static_cast<int>(SpeedTier::kTortoise)+1,static_cast<int>(SpeedTier::kGlacier),true));
       for(int i = static_cast<int>(SpeedTier::kGlacier); i <= static_cast<int>(SpeedTier::kTortoise) ;++i) //only e 10 and e 9 seem to be worth it
       {
         auto trialParams = cparams;
         trialParams.speed_tier = static_cast<SpeedTier>(i);
-        auto copiedJpegData = jpegDataMasterCopy;
+        auto copiedJpegData = std::make_unique<jpeg::JPEGData>(*jpegDataMasterCopy);
         frame_data.SetJPEGData(std::move(copiedJpegData));
         JXL_RUN_FRAME_TRIAL("e"<<10-i);
-        
-        if(i <= static_cast<int>(SpeedTier::kKitten))
-        {
-          //nb_repeats influences these speedTiers, so try stuff with them too
-          {
-            jpegxl::progress::addStep(jpegxl::progress::step("I1"));
-            auto copiedJpegData = jpegDataMasterCopy;
-            frame_data.SetJPEGData(std::move(copiedJpegData));
-            auto trialParams = cparams;
-            trialParams.options.nb_repeats = 1.0f;
-            JXL_RUN_FRAME_TRIAL("I00"); 
-            jpegxl::progress::popStep("I1");
-          }
-        }
         //TODO some other prog advancement is leaking through to here!!!
         //jpegxl::progress::advanceCurrentProg();
+      }
+      {
+        jpegxl::progress::addStep(jpegxl::progress::step("I1"));
+        auto copiedJpegData = std::make_unique<jpeg::JPEGData>(*jpegDataMasterCopy);
+        frame_data.SetJPEGData(std::move(copiedJpegData));
+        auto trialParams = cparams;
+        trialParams.options.nb_repeats = 1.0f;
+        JXL_RUN_FRAME_TRIAL("I100"); 
+        jpegxl::progress::popStep("I1");
       }
       jpegxl::progress::popStep("e");
     }
@@ -2228,13 +2227,18 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       cparams.patches = Override::kOff;
       cparams.keep_invisible = Override::kOn;
       cparams.options.predictor = Predictor::Variable;
+      cparams.options.histogram_params.clustering = HistogramParams::ClusteringType::kBest;
+      cparams.options.histogram_params.uint_method = HistogramParams::HybridUintMethod::kBest;
+      cparams.options.histogram_params.ans_histogram_strategy = HistogramParams::ANSHistogramStrategy::kPrecise;
+      cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kLZ77;
 
       jpegxl::progress::addStep(jpegxl::progress::step("g",max_g,0,true));
       for(int i = 0; i <= max_g;++i)
       {
         auto trialParams = cparams;
         trialParams.speed_tier = SpeedTier::kGlacier;
-        trialParams.modular_group_size_shift = max_g;
+        trialParams.modular_group_size_shift = i;
+        trialParams.options.predictor = Predictor::Variable;
         JXL_RUN_FRAME_TRIAL("g"<<i);
         
         if(frame_data.usesAllPal)
@@ -2324,14 +2328,6 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
         JXL_RUN_FRAME_TRIAL("noKeepInvisible"); 
         jpegxl::progress::popStep("alpha");
       }
-      if(metadata->m.color_encoding.Channels() > 1 || metadata->m.HasAlpha())
-      {
-        jpegxl::progress::addStep(jpegxl::progress::step("E"));
-        auto trialParams = cparams;
-        trialParams.options.max_properties = 6;
-        JXL_RUN_FRAME_TRIAL("ExtraChannels"); 
-        jpegxl::progress::popStep("E");
-      }
 
       for (Predictor pred : {
             //Predictor::Zero,
@@ -2387,6 +2383,62 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
         JXL_RUN_FRAME_TRIAL("Predictor"<<static_cast<int>(pred)); 
         jpegxl::progress::popStep(predString.c_str());
       }
+
+/*
+      //These are not worthwile really, so far minor effects and usually on very weird small images
+      for(HistogramParams::ClusteringType clust: {
+        HistogramParams::ClusteringType::kFastest
+        ,HistogramParams::ClusteringType::kFast
+        //,HistogramParams::ClusteringType::kBest //This is the default
+      })
+      {
+        auto trialParams = cparams;
+        trialParams.options.histogram_params.clustering = clust;
+        JXL_RUN_FRAME_TRIAL("clustering"<<static_cast<int>(clust)); 
+      }
+
+      for(HistogramParams::HybridUintMethod hybui: {
+        HistogramParams::HybridUintMethod::kNone
+        ,HistogramParams::HybridUintMethod::k000
+        ,HistogramParams::HybridUintMethod::kFast
+        ,HistogramParams::HybridUintMethod::kContextMap
+        //,HistogramParams::HybridUintMethod::kBest //this is the default
+      })
+      {
+        auto trialParams = cparams;
+        trialParams.options.histogram_params.uint_method = hybui;
+        JXL_RUN_FRAME_TRIAL("hybridUint"<<static_cast<int>(hybui));
+      }
+
+      for( HistogramParams::ANSHistogramStrategy ansh: {
+        HistogramParams::ANSHistogramStrategy::kFast
+        ,HistogramParams::ANSHistogramStrategy::kApproximate
+        //,HistogramParams::ANSHistogramStrategy::kPrecise //this is the default
+      })
+      {
+        auto trialParams = cparams;
+        trialParams.options.histogram_params.ans_histogram_strategy = ansh;
+        JXL_RUN_FRAME_TRIAL("ansHistogram"<<static_cast<int>(ansh));
+      }
+*/
+
+      if(metadata->m.color_encoding.Channels() > 1 || metadata->m.HasAlpha())
+      {
+        jpegxl::progress::addStep(jpegxl::progress::step("E"));
+        auto trialParams = cparams;
+        trialParams.options.max_properties = 6;
+        JXL_RUN_FRAME_TRIAL("ExtraChannels"); 
+        jpegxl::progress::popStep("E");
+      }
+
+      /*//play with heuristic threshold
+      for(int i = 0; i < 1024; i+=16)
+      {
+        auto trialParams = cparams;
+        trialParams.options.splitting_heuristics_node_threshold = i;
+        JXL_RUN_FRAME_TRIAL("splitHeuristic"<<(i));
+      }*/
+
       if(false)//yeah, intentional
       {
         std::cout<<"----- Best params -----"<<
@@ -2403,6 +2455,10 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
         "\npalCols:"<<cparams.palette_colors<<" used?="<<frame_data.usesAllPal<<
         "\ntreeMode:"<<static_cast<int>(cparams.options.wp_tree_mode)<<
         "\nspeed:"<<static_cast<int>(cparams.speed_tier)<<
+        "\nclusteringType:"<<static_cast<int>(cparams.options.histogram_params.clustering)<<
+        "\nhybridUint:"<<static_cast<int>(cparams.options.histogram_params.uint_method)<<
+        "\nnsHistogram:"<<static_cast<int>(cparams.options.histogram_params.ans_histogram_strategy)<<
+        "\nsplittingHeuristic:"<<cparams.options.splitting_heuristics_node_threshold<<
         "\n----- end -----"<<
         std::endl;
       }
@@ -2412,6 +2468,11 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       cparams.speed_tier = SpeedTier::kGlacier;
       cparams.keep_invisible = Override::kOff;
       cparams.options.predictor = Predictor::Variable;
+      cparams.options.histogram_params.clustering = HistogramParams::ClusteringType::kBest;
+      cparams.options.histogram_params.uint_method = HistogramParams::HybridUintMethod::kBest;
+      cparams.options.histogram_params.ans_histogram_strategy = HistogramParams::ANSHistogramStrategy::kPrecise;
+      cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kLZ77;
+
       if(metadata->m.HasAlpha())
       {
         cparams.ec_distance[0] = 1.0f;
@@ -2651,7 +2712,7 @@ Status EncodeFrame(JxlMemoryManager* memory_manager,
     std::unique_ptr<std::vector<uint8_t>> outputVec{};
     JXL_RETURN_IF_ERROR(EncodeFrameTrials(memory_manager, cparams,frame_info,metadata,frame_data,cms,pool,aux_out,outputVec));
     BitWriter writer{memory_manager};
-    writer.AppendByteAligned(Bytes(*outputVec.get()));
+    JXL_RETURN_IF_ERROR(writer.AppendByteAligned(Bytes(*outputVec.get())));
     PaddedBytes frame_bytes = std::move(writer).TakeBytes();
     JXL_RETURN_IF_ERROR(AppendData(*output_processor, frame_bytes));
     return true;

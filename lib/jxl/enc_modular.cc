@@ -1294,8 +1294,8 @@ Status ModularFrameEncoder::ComputeTokens(ThreadPool* pool) {
     return true;
   };
   JXL_RETURN_IF_ERROR(RunOnPool(pool, 0, num_streams, ThreadPool::NoInit,
-  jpegxl::progress::popStep("tree");
                                 process_stream, "ComputeTokens"));
+  jpegxl::progress::popStep("tree");
   return true;
 }
 
