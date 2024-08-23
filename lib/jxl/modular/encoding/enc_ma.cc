@@ -175,6 +175,7 @@ void FindBestSplit(TreeSamples &tree_samples, float threshold,
     uint64_t used_properties;
     StaticPropRange static_prop_range;
   };
+  jpegxl::progress::addStep(jpegxl::progress::step("learn",0,0,true));
   std::vector<NodeInfo> nodes;
   nodes.push_back(NodeInfo{0, 0, tree_samples.NumDistinctSamples(), 0,
                            initial_static_prop_range});
@@ -473,11 +474,12 @@ void FindBestSplit(TreeSamples &tree_samples, float threshold,
     ++progressSplits;
     if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 100)
     {
-      jpegxl::progress::advanceCurrentProg(progressSplits);
+      jpegxl::progress::advanceCurrentProg("learn",progressSplits);
       progressSplits=0;
       lastProgPrint = std::chrono::high_resolution_clock::now();
     }
   }
+  jpegxl::progress::popStep("learn");
 }
 
 // NOLINTNEXTLINE(google-readability-namespace-comments)

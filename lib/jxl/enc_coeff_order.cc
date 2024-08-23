@@ -38,6 +38,7 @@
 #include "lib/jxl/enc_ans.h"
 #include "lib/jxl/enc_bit_writer.h"
 #include "lib/jxl/lehmer_code.h"
+#include "lib/jxl/progress_manager.h"
 
 namespace jxl {
 
@@ -322,6 +323,7 @@ Status EncodeCoeffOrders(uint16_t used_orders,
   }
   // Do not write anything if no order is used.
   if (used_orders != 0) {
+    jpegxl::progress::addStep(jpegxl::progress::step("CoeffOrders"));
     std::vector<uint8_t> context_map;
     EntropyEncodingData codes;
     JXL_ASSIGN_OR_RETURN(
@@ -332,6 +334,7 @@ Status EncodeCoeffOrders(uint16_t used_orders,
     (void)cost;
     JXL_RETURN_IF_ERROR(
         WriteTokens(tokens[0], codes, context_map, 0, writer, layer, aux_out));
+    jpegxl::progress::popStep("CoeffOrders");
   }
   return true;
 }

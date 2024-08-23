@@ -22,6 +22,7 @@
 #include "lib/jxl/entropy_coder.h"
 #include "lib/jxl/fields.h"
 #include "lib/jxl/pack_signed.h"
+#include "lib/jxl/progress_manager.h"
 
 namespace jxl {
 
@@ -70,7 +71,7 @@ Status EncodeContextMap(const std::vector<uint8_t>& context_map,
     writer->Write(2, 0);
     return true;
   }
-
+  //jpegxl::progress::addStep(jpegxl::progress::step("ContextMap"));
   JxlMemoryManager* memory_manager = writer->memory_manager();
   std::vector<uint8_t> transformed_symbols = MoveToFrontTransform(context_map);
   std::vector<std::vector<Token>> tokens(1);
@@ -86,20 +87,24 @@ Status EncodeContextMap(const std::vector<uint8_t>& context_map,
   size_t ans_cost;
   size_t mtf_cost;
   {
+    //jpegxl::progress::addStep(jpegxl::progress::step("ans"));
     EntropyEncodingData codes;
     std::vector<uint8_t> sink_context_map;
     JXL_ASSIGN_OR_RETURN(ans_cost, BuildAndEncodeHistograms(
                                        memory_manager, params, 1, tokens,
                                        &codes, &sink_context_map, nullptr,
                                        LayerType::Header, /*aux_out*/ nullptr));
+    //jpegxl::progress::popStep("ans");
   }
   {
+    //jpegxl::progress::addStep(jpegxl::progress::step("mtf"));
     EntropyEncodingData codes;
     std::vector<uint8_t> sink_context_map;
     JXL_ASSIGN_OR_RETURN(mtf_cost, BuildAndEncodeHistograms(
                                        memory_manager, params, 1, mtf_tokens,
                                        &codes, &sink_context_map, nullptr,
                                        LayerType::Header, /*aux_out*/ nullptr));
+    //jpegxl::progress::popStep("mtf");
   }
   bool use_mtf = mtf_cost < ans_cost;
   // Rebuild token list.
@@ -136,6 +141,7 @@ Status EncodeContextMap(const std::vector<uint8_t>& context_map,
           return true;
         }));
   }
+  //jpegxl::progress::popStep("ContextMap");
   return true;
 }
 

@@ -1241,6 +1241,7 @@ Status EncodeGlobalACInfo(PassesEncoderState* enc_state, BitWriter* writer,
     }
     hist_params.streaming_mode = enc_state->streaming_mode;
     hist_params.initialize_global_state = enc_state->initialize_global_state;
+    jpegxl::progress::addStep(jpegxl::progress::step("frameHist"));
     JXL_ASSIGN_OR_RETURN(
         size_t cost,
         BuildAndEncodeHistograms(
@@ -1249,6 +1250,7 @@ Status EncodeGlobalACInfo(PassesEncoderState* enc_state, BitWriter* writer,
             enc_state->passes[i].ac_tokens, &enc_state->passes[i].codes,
             &enc_state->passes[i].context_map, writer, LayerType::Ac, aux_out));
     (void)cost;
+    jpegxl::progress::popStep("frameHist");
   }
 
   return true;
@@ -2207,7 +2209,7 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
         frame_data.SetJPEGData(std::move(copiedJpegData));
         JXL_RUN_FRAME_TRIAL("e"<<10-i);
         //TODO some other prog advancement is leaking through to here!!!
-        //jpegxl::progress::advanceCurrentProg();
+        jpegxl::progress::advanceCurrentProg("e");
       }
       {
         jpegxl::progress::addStep(jpegxl::progress::step("I1"));
@@ -2247,7 +2249,7 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
           trialParams.options.predictor = Predictor::Zero;
           JXL_RUN_FRAME_TRIAL("g"<<i<<"_P0CausePal");
         }
-        jpegxl::progress::advanceCurrentProg();
+        jpegxl::progress::advanceCurrentProg("g");
       }
       jpegxl::progress::popStep("g");
 

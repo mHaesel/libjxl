@@ -328,7 +328,7 @@ bool EncodeImageJXL(const JXLCompressParams& params, const PackedPixelFile& ppf,
     }
     DJxlProgressAddStep("Add Frame", ppf.frames.size(), 0, true);
     for (size_t num_frame = 0; num_frame < ppf.frames.size(); ++num_frame) {
-      DJxlProgressAdvanceCurrentProg(1);
+      DJxlProgressAdvanceCurrentProg("Add Frame",1);
       const jxl::extras::PackedFrame& pframe = ppf.frames[num_frame];
       const jxl::extras::PackedImage& pimage = pframe.color;
       JxlPixelFormat ppixelformat = pimage.format;
@@ -360,7 +360,7 @@ bool EncodeImageJXL(const JXLCompressParams& params, const PackedPixelFile& ppf,
     DJxlProgressPopStep("Add Frame");
     DJxlProgressAddStep("Add ChunkedFrame", ppf.chunked_frames.size(), 0, true);
     for (size_t fi = 0; fi < ppf.chunked_frames.size(); ++fi) {
-      DJxlProgressAdvanceCurrentProg(1);
+      DJxlProgressAdvanceCurrentProg("Add ChunkedFrame",1);
       ChunkedPackedFrame& chunked_frame = ppf.chunked_frames[fi];
       size_t num_interleaved_alpha =
           (chunked_frame.format.num_channels - ppf.info.num_color_channels);

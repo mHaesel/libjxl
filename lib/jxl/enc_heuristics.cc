@@ -1162,11 +1162,11 @@ Status LossyFrameHeuristics(const FrameHeader& frame_header,
     size_t n_enc_tiles = DivCeil(frame_dim.xsize_blocks, kEncTileDimInBlocks);
     if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 100)
     {
-      jpegxl::progress::advanceCurrentProg();
+      jpegxl::progress::advanceCurrentProg("cfl+acs");
       lastProgPrint = std::chrono::high_resolution_clock::now();
     }
     else{
-      jpegxl::progress::advanceCurrentProg(1,false);
+      jpegxl::progress::advanceCurrentProg("cfl+acs",1,false);
     }
     size_t tx = tid % n_enc_tiles;
     size_t ty = tid / n_enc_tiles;
@@ -1217,7 +1217,7 @@ Status LossyFrameHeuristics(const FrameHeader& frame_header,
   };
   JXL_RETURN_IF_ERROR(
       RunOnPool(pool, 0, num_tiles, prepare, process_tile, "Enc Heuristics"));
-  jpegxl::progress::advanceCurrentProg(0);
+  jpegxl::progress::advanceCurrentProg("cfl+acs",0);
   JXL_RETURN_IF_ERROR(acs_heuristics.Finalize(frame_dim, ac_strategy, aux_out));
   jpegxl::progress::popStep("cfl+acs");
     jpegxl::progress::addStep(jpegxl::progress::step("computeDC"));

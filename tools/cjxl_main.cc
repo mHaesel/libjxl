@@ -576,6 +576,7 @@ void PrintMode(jxl::extras::PackedPixelFile& ppf, const double decode_mps,
   const char* mode = ModeFromArgs(args);
   const std::string distance = DistanceFromArgs(args);
   DJxlProgressAddStep(mode,0,0,false);
+  DJxlProgressStartThread();
   if (FROM_JXL_BOOL(args.lossless_jpeg)) {
     cmdline.VerbosePrintf(1, "Read JPEG image with %" PRIuS " bytes.\n",
                           num_bytes);

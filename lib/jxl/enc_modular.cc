@@ -399,7 +399,7 @@ void try_palettes(Image& gi, int& max_bitdepth, int& maxval,
   //this is -X or -Y based on the source of this variable
   if (channel_colors_percent > 0) {
     // single channel palette (like FLIF's ChannelCompact)
-    jpegxl::progress::addStep(jpegxl::progress::step("singChanPal"));
+    //jpegxl::progress::addStep(jpegxl::progress::step("singChanPal"));
     size_t nb_channels = gi.channel.size() - gi.nb_meta_channels - did_palette;
     int orig_bitdepth = max_bitdepth;
     max_bitdepth = 0;
@@ -444,7 +444,7 @@ void try_palettes(Image& gi, int& max_bitdepth, int& maxval,
         max_bitdepth = orig_bitdepth;
       }
     }
-    jpegxl::progress::popStep("singChanPal");
+    //jpegxl::progress::popStep("singChanPal");
   }
 }
 
@@ -1161,7 +1161,6 @@ Status ModularFrameEncoder::ComputeTree(ThreadPool* pool) {
     if (useful_splits.empty()) return true;
     useful_splits.push_back(tree_splits_.back());
     jpegxl::progress::popStep("non-corresponding pixels");
-    jpegxl::progress::addStep(jpegxl::progress::step("learn",0,0,true));
     std::vector<Tree> trees(useful_splits.size() - 1);
     const auto process_chunk = [&](const uint32_t chunk,
                                    size_t /* thread */) -> Status {
@@ -1210,7 +1209,7 @@ Status ModularFrameEncoder::ComputeTree(ThreadPool* pool) {
           stream_options_[start].max_property_values);
           jpegxl::progress::addStep(jpegxl::progress::step("modGenComp",stop-start,0,true));
       for (size_t i = start; i < stop; i++) {
-            jpegxl::progress::advanceCurrentProg();
+            jpegxl::progress::advanceCurrentProg("modGenComp");
         JXL_RETURN_IF_ERROR(
             ModularGenericCompress(stream_images_[i], stream_options_[i],
                                    /*writer=*/nullptr,
@@ -1229,7 +1228,6 @@ Status ModularFrameEncoder::ComputeTree(ThreadPool* pool) {
                                   ThreadPool::NoInit, process_chunk,
                                   "LearnTrees"));
     tree_.clear();
-    jpegxl::progress::popStep("learn");
     jpegxl::progress::addStep(jpegxl::progress::step("merge trees"));
     JXL_RETURN_IF_ERROR(
         MergeTrees(trees, useful_splits, 0, useful_splits.size() - 1, &tree_));
@@ -1397,7 +1395,7 @@ Status ModularFrameEncoder::PrepareStreamParams(const Rect& rect,
                                                 const ModularStreamId& stream,
                                                 bool do_color, bool groupwise 
                                                 ,PassesEncoderState* enc_state) {
-  jpegxl::progress::advanceCurrentProg();
+  jpegxl::progress::advanceCurrentProg("prepareStreamParams");
   size_t stream_id = stream.ID(frame_dim_);
   if (stream_id == 0 && frame_dim_.num_groups != 1) {
     // If we have multiple groups, then the stream with ID 0 holds the full

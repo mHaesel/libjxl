@@ -1520,6 +1520,10 @@ JxlEncoderStatus JxlEncoderSetFrameDistance(
   frame_settings->values.cparams.butteraugli_distance = distance;
   return JxlErrorOrStatus::Success();
 }
+void DJxlProgressStartThread()
+{
+  jpegxl::progress::startThread();
+}
 void DJxlProgressAddStep(const char* name, unsigned int totalProg, unsigned int prog, bool printProg)
 {
   jpegxl::progress::addStep(jpegxl::progress::step(std::string(name),totalProg,prog,printProg));
@@ -1528,9 +1532,9 @@ void DJxlProgressPopStep(const char* name)
 {
   jpegxl::progress::popStep(name);
 }
-void DJxlProgressAdvanceCurrentProg(unsigned int num)
+void DJxlProgressAdvanceCurrentProg(const char* name,unsigned int num)
 {
-  jpegxl::progress::advanceCurrentProg(num);
+  jpegxl::progress::advanceCurrentProg(name,num);
 }
 void DJxlProgressSetQuiet()
 {
