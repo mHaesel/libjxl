@@ -186,6 +186,8 @@ struct CompressParams {
 
   JxlDebugImageCallback debug_image = nullptr;
   void* debug_image_opaque;
+
+  HistogramParams::LZ77Method lz77Method = HistogramParams::LZ77Method::kLZ77;
 };
 
 static constexpr float kMinButteraugliForDynamicAR = 0.5f;

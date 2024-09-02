@@ -2199,6 +2199,7 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       cparams.options.histogram_params.uint_method = HistogramParams::HybridUintMethod::kBest;
       cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kLZ77;
       cparams.options.histogram_params.ans_histogram_strategy = HistogramParams::ANSHistogramStrategy::kPrecise;
+      cparams.lz77Method = HistogramParams::LZ77Method::kLZ77;
       auto jpegDataMasterCopy = frame_data.TakeJPEGData();//JpegData is moved internally, so we copy it for each trial
       jpegxl::progress::addStep(jpegxl::progress::step("e",static_cast<int>(SpeedTier::kTortoise)+1,static_cast<int>(SpeedTier::kGlacier),true));
       for(int i = static_cast<int>(SpeedTier::kGlacier); i <= static_cast<int>(SpeedTier::kTortoise) ;++i) //only e 10 and e 9 seem to be worth it
@@ -2233,6 +2234,7 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       cparams.options.histogram_params.uint_method = HistogramParams::HybridUintMethod::kBest;
       cparams.options.histogram_params.ans_histogram_strategy = HistogramParams::ANSHistogramStrategy::kPrecise;
       cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kLZ77;
+      cparams.lz77Method = HistogramParams::LZ77Method::kLZ77;
 
       jpegxl::progress::addStep(jpegxl::progress::step("g",max_g,0,true));
       for(int i = 0; i <= max_g;++i)
@@ -2441,6 +2443,17 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
         JXL_RUN_FRAME_TRIAL("splitHeuristic"<<(i));
       }*/
 
+     //LZ77
+     /*{
+      jpegxl::progress::addStep(jpegxl::progress::step("lz77opt"));
+      auto trialParams = cparams;
+      trialParams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kOptimal;
+      trialParams.lz77Method = HistogramParams::LZ77Method::kOptimal;
+      JXL_RUN_FRAME_TRIAL("lz77Opt");
+      jpegxl::progress::popStep("lz77opt");
+     }*/
+
+
       if(false)//yeah, intentional
       {
         std::cout<<"----- Best params -----"<<
@@ -2461,6 +2474,7 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
         "\nhybridUint:"<<static_cast<int>(cparams.options.histogram_params.uint_method)<<
         "\nnsHistogram:"<<static_cast<int>(cparams.options.histogram_params.ans_histogram_strategy)<<
         "\nsplittingHeuristic:"<<cparams.options.splitting_heuristics_node_threshold<<
+        "\nlz77_method:"<<static_cast<int>(trialParams.options.histogram_params.lz77_method)<<
         "\n----- end -----"<<
         std::endl;
       }
@@ -2474,6 +2488,7 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       cparams.options.histogram_params.uint_method = HistogramParams::HybridUintMethod::kBest;
       cparams.options.histogram_params.ans_histogram_strategy = HistogramParams::ANSHistogramStrategy::kPrecise;
       cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kLZ77;
+      cparams.lz77Method = HistogramParams::LZ77Method::kLZ77;
 
       if(metadata->m.HasAlpha())
       {

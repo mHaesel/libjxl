@@ -1916,10 +1916,15 @@ HistogramParams HistogramParams::ForModular(
     } else {
       params.uint_method = HistogramParams::HybridUintMethod::kNone;
     }
-  } else if (cparams.speed_tier <= SpeedTier::kTortoise) {
-    params.lz77_method = HistogramParams::LZ77Method::kLZ77;
+  } else if ((cparams.speed_tier == SpeedTier::kTortoise) || (cparams.speed_tier == SpeedTier::kGlacier)) {
+    //params.lz77_method = HistogramParams::LZ77Method::kLZ77;
+    params.lz77_method = cparams.lz77Method;
+    params.clustering = ClusteringType::kBest;
+    params.uint_method = HybridUintMethod::kBest;
+    params.ans_histogram_strategy = ANSHistogramStrategy::kPrecise;
   } else {
-    params.lz77_method = HistogramParams::LZ77Method::kLZ77;
+    //params.lz77_method = HistogramParams::LZ77Method::kLZ77;
+    params.lz77_method = cparams.lz77Method;
   }
   if (cparams.decoding_speed_tier >= 1) {
     params.max_histograms = 12;
