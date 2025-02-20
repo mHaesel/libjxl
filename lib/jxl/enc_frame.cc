@@ -2381,11 +2381,12 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
 
       //If we have alpha, for the rare case were it is useful we can try cleaning invisible pixels
       //Only slows down on images with alpha, so its worth
-      if(metadata->m.HasAlpha())
+      if(metadata->m.HasAlpha())//do not change invisible pixels for patches???
       {
         jpegxl::progress::addStep(jpegxl::progress::step("alpha"));
         auto trialParams = cparams;
         trialParams.keep_invisible = Override::kOff;
+        trialParams.patches = Override::kOff;//bug with patches?
         JXL_RUN_FRAME_TRIAL("noKeepInvisible"); 
         jpegxl::progress::popStep("alpha");
       }
