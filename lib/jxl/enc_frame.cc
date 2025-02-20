@@ -2294,12 +2294,12 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
         trialParams.options.predictor = Predictor::Variable;
         JXL_RUN_FRAME_TRIAL("g"<<i);
         
-        if(frame_data.usesAllPal)
+        /*if(frame_data.usesAllPal)
         {
-          //-P 0 on low color images can sometimes make a big difference
+          //-P 0 on low color images can sometimes make a big difference.... but I cannot find valid samples anymore, so it is disabled
           trialParams.options.predictor = Predictor::Zero;
           JXL_RUN_FRAME_TRIAL("g"<<i<<"_P0CausePal");
-        }
+        }*/
         jpegxl::progress::advanceCurrentProg("g");
       }
       jpegxl::progress::popStep("g");
@@ -2391,26 +2391,37 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
         jpegxl::progress::popStep("alpha");
       }
 
+      //if bestSize < 1000, try all Predictors
+      
       //Predictors rarely improve things much over the variable predictor mode
       //The enabled predictors were chosen after some testing on a reltively small but varied set of files
       //On large images variable predictor is almost always best
       for (Predictor pred : {
-            //Predictor::Zero,
-            //Predictor::Left,
-            //Predictor::Top,
-            //Predictor::Average0,
-            //Predictor::Select,
+            Predictor::Zero,
+            Predictor::Left,
+            Predictor::Top,
+            Predictor::Average0,
+            Predictor::Select,
             Predictor::Gradient, //very fast
-            Predictor::Weighted//a few cases worked very well with this option, also fast
-            //Predictor::TopRight,
-            //Predictor::TopLeft,
-            //Predictor::LeftLeft,
-            //Predictor::Average1,
-            //Predictor::Average2,
-            //Predictor::Average3,
-            //Predictor::Average4
+            Predictor::Weighted,//a few cases worked very well with this option, also fast
+            Predictor::TopRight,
+            Predictor::TopLeft,
+            Predictor::LeftLeft,
+            Predictor::Average1,
+            Predictor::Average2,
+            Predictor::Average3,
+            Predictor::Average4
             })
       {
+        if(bestSize > 3000)
+        {
+          //mostly useless predictors for larger files get skipped
+          if (pred != Predictor::Gradient
+          &&  pred != Predictor::Weighted)
+          {
+            continue;
+          }
+        }
         std::string predString;
         switch (pred)
         {
