@@ -2390,8 +2390,6 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
         JXL_RUN_FRAME_TRIAL("noKeepInvisible"); 
         jpegxl::progress::popStep("alpha");
       }
-
-      //if bestSize < 1000, try all Predictors
       
       //Predictors rarely improve things much over the variable predictor mode
       //The enabled predictors were chosen after some testing on a reltively small but varied set of files
@@ -2453,6 +2451,10 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
         if(pred == Predictor::Gradient) //Speed up the trial
         {
           trialParams.options.wp_tree_mode = ModularOptions::TreeMode::kGradientOnly;
+        }
+        else
+        {
+          trialParams.options.wp_tree_mode = ModularOptions::TreeMode::kDefault;
         }
         trialParams.options.predictor = pred;
 
@@ -2524,6 +2526,15 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       trialParams.lz77Method = HistogramParams::LZ77Method::kOptimal;
       JXL_RUN_FRAME_TRIAL("lz77Opt");
       jpegxl::progress::popStep("lz77opt");
+     }
+     //how about no LZ77?
+     {
+      jpegxl::progress::addStep(jpegxl::progress::step("lz77opt"));
+      auto trialParams = cparams;
+      trialParams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kNone;
+      trialParams.lz77Method = HistogramParams::LZ77Method::kNone;
+      JXL_RUN_FRAME_TRIAL("nolz77");
+      jpegxl::progress::popStep("nolz77");
      }*/
     }
     else // varDct
