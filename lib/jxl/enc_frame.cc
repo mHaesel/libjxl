@@ -2252,13 +2252,14 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       cparams.options.predictor = Predictor::Variable; //Usually the best. On al arge test set, other predictors rarely improved upon this by a few byts, not worth it
       cparams.options.histogram_params.clustering = HistogramParams::ClusteringType::kBest;
       cparams.options.histogram_params.uint_method = HistogramParams::HybridUintMethod::kBest;
-      cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kLZ77;//No real benefit so far, but it is quick, so lets leave it on
+      cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kNone;
       cparams.options.histogram_params.ans_histogram_strategy = HistogramParams::ANSHistogramStrategy::kPrecise;
-      cparams.lz77Method = HistogramParams::LZ77Method::kLZ77;
+      cparams.lz77Method = HistogramParams::LZ77Method::kNone;
       cparams.options.nb_repeats = 1.0f;//On 6000 jpgs, this was always better than the default
       auto jpegDataMasterCopy = frame_data.TakeJPEGData();//JpegData is moved internally, so we copy it for each trial
       jpegxl::progress::addStep(jpegxl::progress::step("e",static_cast<int>(SpeedTier::kTortoise)+1,static_cast<int>(SpeedTier::kGlacier),true));
-      for(int i = static_cast<int>(SpeedTier::kGlacier); i <= static_cast<int>(SpeedTier::kTortoise) ;++i) //only e 10 and e 9 seem to be worth it
+      for(int i = static_cast<int>(SpeedTier::kTortoise); i <= static_cast<int>(SpeedTier::kTortoise) ;++i) //only e 10 and e 9 seem to be worth it, but the difference is small
+      //e9 frequently wins by a couple 100 bytes, so lets just use that, to save the time
       {
         auto trialParams = cparams;
         trialParams.speed_tier = static_cast<SpeedTier>(i);
@@ -2269,6 +2270,8 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
         jpegxl::progress::advanceCurrentProg("e");
       }
       jpegxl::progress::popStep("e");
+
+      //for now no trials seemed worth it at all
     }
     else
     if(cparams.IsLossless())
@@ -2280,7 +2283,7 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       cparams.options.histogram_params.clustering = HistogramParams::ClusteringType::kBest;
       cparams.options.histogram_params.uint_method = HistogramParams::HybridUintMethod::kBest;
       cparams.options.histogram_params.ans_histogram_strategy = HistogramParams::ANSHistogramStrategy::kPrecise;
-      cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kLZ77;//optimal is to slow with many match candidates. It would improve compression on especially syntehtic images
+      cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kLZ77;//optimal is too slow with many match candidates. It would improve compression on especially syntehtic images
       cparams.lz77Method = HistogramParams::LZ77Method::kLZ77;
 
 
@@ -2545,8 +2548,13 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       cparams.options.histogram_params.clustering = HistogramParams::ClusteringType::kBest;
       cparams.options.histogram_params.uint_method = HistogramParams::HybridUintMethod::kBest;
       cparams.options.histogram_params.ans_histogram_strategy = HistogramParams::ANSHistogramStrategy::kPrecise;
-      cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kLZ77;
-      cparams.lz77Method = HistogramParams::LZ77Method::kLZ77;
+      cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kNone;
+      cparams.lz77Method = HistogramParams::LZ77Method::kNone;
+      if(!tryForPatches) //when we are encoding a patch, lz77 can be helpful
+      {
+        cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kLZ77;
+        cparams.lz77Method = HistogramParams::LZ77Method::kLZ77;
+      }
 
       if(metadata->m.HasAlpha())
       {
@@ -2561,8 +2569,12 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
         jpegxl::progress::addStep(jpegxl::progress::step("alpha"));
         auto trialParams = cparams;
         trialParams.keep_invisible = Override::kOn;
-        trialParams.ec_distance[0] = 0.0f; //Try 
+        trialParams.ec_distance[0] = 0.0f;
         JXL_RUN_FRAME_TRIAL("losslesAlphaButKeepInvis");
+        trialParams = cparams;
+        trialParams.keep_invisible = Override::kOff;
+        trialParams.ec_distance[0] = 0.0f;
+        JXL_RUN_FRAME_TRIAL("losslesAlpha");
         jpegxl::progress::popStep("alpha");
       }
     }
