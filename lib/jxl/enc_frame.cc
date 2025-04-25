@@ -2257,7 +2257,6 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       cparams.lz77Method = HistogramParams::LZ77Method::kNone;
       cparams.options.nb_repeats = 1.0f;//On 6000 jpgs, this was always better than the default
       auto jpegDataMasterCopy = frame_data.TakeJPEGData();//JpegData is moved internally, so we copy it for each trial
-      jpegxl::progress::addStep(jpegxl::progress::step("e",static_cast<int>(SpeedTier::kTortoise)+1,static_cast<int>(SpeedTier::kGlacier),true));
       for(int i = static_cast<int>(SpeedTier::kTortoise); i <= static_cast<int>(SpeedTier::kTortoise) ;++i) //only e 10 and e 9 seem to be worth it, but the difference is small
       //e9 frequently wins by a couple 100 bytes, so lets just use that, to save the time
       {
@@ -2266,11 +2265,7 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
         auto copiedJpegData = std::make_unique<jpeg::JPEGData>(*jpegDataMasterCopy);
         frame_data.SetJPEGData(std::move(copiedJpegData));
         JXL_RUN_FRAME_TRIAL("e"<<10-i);
-        //TODO some other prog advancement is leaking through to here!!!
-        jpegxl::progress::advanceCurrentProg("e");
       }
-      jpegxl::progress::popStep("e");
-
       //for now no trials seemed worth it at all
     }
     else
