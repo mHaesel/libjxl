@@ -2369,13 +2369,14 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
         jpegxl::progress::popStep("I1");
       }
 
-      /*{ //Extremely rare for improvements (basically never), but it is relatively quick to check, meh?
+      if(bestSize <= 1500)
+      { //Extremely rare for improvements (basically never), but it is relatively quick to check, meh?
         jpegxl::progress::addStep(jpegxl::progress::step("I0"));
         auto trialParams = cparams;
         trialParams.options.nb_repeats = 0.0f;
         JXL_RUN_FRAME_TRIAL("I0"); 
         jpegxl::progress::popStep("I0");
-      }*/
+      }
 
       //If we have alpha, for the rare case were it is useful we can try cleaning invisible pixels
       //Only slows down on images with alpha, so its worth
@@ -2393,13 +2394,13 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       //The enabled predictors were chosen after some testing on a reltively small but varied set of files
       //On large images variable predictor is almost always best
       for (Predictor pred : {
+            Predictor::Gradient, //very fast, also keep the ordering, if the always active ones find gains, they activate predictor zero and others
+            Predictor::Weighted,//a few cases worked very well with this option, also fast
             Predictor::Zero,
             Predictor::Left,
             Predictor::Top,
             Predictor::Average0,
             Predictor::Select,
-            Predictor::Gradient, //very fast
-            Predictor::Weighted,//a few cases worked very well with this option, also fast
             Predictor::TopRight,
             Predictor::TopLeft,
             Predictor::LeftLeft,
@@ -2409,7 +2410,7 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
             Predictor::Average4
             })
       {
-        if(bestSize > 3000)
+        if(bestSize > 20000)
         {
           //mostly useless predictors for larger files get skipped
           if (pred != Predictor::Gradient
@@ -2507,8 +2508,8 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
         jpegxl::progress::popStep("E");
       }
 
-      /*//play with heuristic threshold
-      for(int i = 0; i < 1024; i+=16)
+      //play with heuristic threshold
+      /*for(int i = 0; i < 1024; i+=16)
       {
         auto trialParams = cparams;
         trialParams.options.splitting_heuristics_node_threshold = i;
@@ -2516,8 +2517,8 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       }*/
 
      //LZ77
-     /*{//Instead of running this trial, we could just use opt always (as it include whatever lz77 does), but slowdown on some files is too large
-      //Only use this to experiment
+     /*if(bestSize <= 20000)
+     {//Instead of running this trial, we could just use opt always (as it include whatever lz77 does), but slowdown on some files is too large
       jpegxl::progress::addStep(jpegxl::progress::step("lz77opt"));
       auto trialParams = cparams;
       trialParams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kOptimal;
