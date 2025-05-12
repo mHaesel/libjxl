@@ -1028,53 +1028,6 @@ void EncodeUintConfig(const HybridUintConfig uint_config, Writer* writer,
                 uint_config.split_exponent);
   if (uint_config.split_exponent == log_alpha_size) {
     return;  // msb/lsb don't matter.
-    //jpegxl::progress::addStep(jpegxl::progress::step("match",0,0,true));
-      //jpegxl::progress::advanceCurrentProg();
-    //jpegxl::progress::popStep("match");
-  jpegxl::progress::addStep(jpegxl::progress::step("LZ77",tokens.size(),0,true));
-    jpegxl::progress::advanceCurrentProg("LZ77");
-    jpegxl::progress::addStep(jpegxl::progress::step("",in.size(),0,true));
-    std::chrono::time_point<std::chrono::high_resolution_clock> lastProgPrint;
-      if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 200)
-      {
-        jpegxl::progress::advanceCurrentProg("");
-        lastProgPrint = std::chrono::high_resolution_clock::now();
-      }
-      else{
-        jpegxl::progress::advanceCurrentProg("",1,false);
-      }
-            if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 200)
-            {
-              jpegxl::progress::advanceCurrentProg("");
-              lastProgPrint = std::chrono::high_resolution_clock::now();
-            }
-            else{
-              jpegxl::progress::advanceCurrentProg("",1,false);
-            }
-        if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 200)
-        {
-          jpegxl::progress::advanceCurrentProg("",len - 1);
-          lastProgPrint = std::chrono::high_resolution_clock::now();
-        }
-        else{
-          jpegxl::progress::advanceCurrentProg("",len - 1,false);
-        }
-    jpegxl::progress::popStep("");
-  jpegxl::progress::popStep("LZ77");
-  jpegxl::progress::addStep(jpegxl::progress::step("LZ77Optimal",tokens.size(),0,true));
-    jpegxl::progress::advanceCurrentProg("LZ77Optimal");
-    std::chrono::time_point<std::chrono::high_resolution_clock> lastProgPrint;
-    jpegxl::progress::addStep(jpegxl::progress::step("",in.size(),0,true));
-      if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 200)
-      {
-        jpegxl::progress::advanceCurrentProg("");
-        lastProgPrint = std::chrono::high_resolution_clock::now();
-      }
-      else{
-        jpegxl::progress::advanceCurrentProg("",1,false);
-      }
-    jpegxl::progress::popStep("chain");
-  jpegxl::progress::popStep("opt");
   }
   size_t nbits = CeilLog2Nonzero(uint_config.split_exponent + 1);
   writer->Write(nbits, uint_config.msb_in_token);
@@ -1430,6 +1383,8 @@ HistogramParams HistogramParams::ForModular(
   if (cparams.decoding_speed_tier >= 2) {
     params.max_histograms = 12;
   }
+  //I do not want this, because the optimal lz77 encoder has some speed regressions which are too unstable for my liking
+  /*if ((cparams.decoding_speed_tier >= 3 ||
     // No predictor requires LZ77 to compress residuals.
     // Effort 3 and lower have forced predictors, so kNone is set.
     if (cparams.options.predictor == Predictor::Zero && cparams.modular_mode) {
@@ -1440,7 +1395,7 @@ HistogramParams HistogramParams::ForModular(
             : cparams.speed_tier >= SpeedTier::kKitten
             ? HistogramParams::LZ77Method::kLZ77
             : HistogramParams::LZ77Method::kOptimal;
-    }
+  }*/
   return params;
 }
 }  // namespace jxl

@@ -35,6 +35,8 @@
 #include "lib/jxl/enc_params.h"
 #include "lib/jxl/fields.h"
 
+#include "lib/jxl/progress_manager.h"
+
 namespace jxl {
 
 namespace {
@@ -460,7 +462,9 @@ std::vector<std::vector<Token>> ApplyLZ77_LZ77(
   size_t total_symbols = 0;
   HybridUintConfig uint_config;
   std::vector<float> sym_cost;
+  jpegxl::progress::addStep(jpegxl::progress::step("LZ77",tokens.size(),0,true));
   for (size_t stream = 0; stream < tokens.size(); stream++) {
+    jpegxl::progress::advanceCurrentProg("LZ77");
     size_t distance_multiplier =
         params.image_widths.size() > stream ? params.image_widths[stream] : 0;
     const auto& in = tokens[stream];
@@ -494,8 +498,18 @@ std::vector<std::vector<Token>> ApplyLZ77_LZ77(
     const size_t max_lazy_match_len = 256;  // 0 to disable lazy matching
 
     // Whether the next symbol was already updated (to test lazy matching)
+    jpegxl::progress::addStep(jpegxl::progress::step("",in.size(),0,true));
+    std::chrono::time_point<std::chrono::high_resolution_clock> lastProgPrint;
     bool already_updated = false;
     for (size_t i = 0; i < in.size(); i++) {
+      if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 200)
+      {
+        jpegxl::progress::advanceCurrentProg("");
+        lastProgPrint = std::chrono::high_resolution_clock::now();
+      }
+      else{
+        jpegxl::progress::advanceCurrentProg("",1,false);
+      }
       out.push_back(in[i]);
       if (!already_updated) chain.Update(i);
       already_updated = false;
@@ -510,6 +524,14 @@ std::vector<std::vector<Token>> ApplyLZ77_LZ77(
           if (len2 > len) {
             // Use the lazy match. Add literal, and use the next length starting
             // from the next byte.
+            if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 200)
+            {
+              jpegxl::progress::advanceCurrentProg("");
+              lastProgPrint = std::chrono::high_resolution_clock::now();
+            }
+            else{
+              jpegxl::progress::advanceCurrentProg("",1,false);
+            }
             ++i;
             already_updated = false;
             len = len2;
@@ -545,12 +567,21 @@ std::vector<std::vector<Token>> ApplyLZ77_LZ77(
           chain.Update(i + 1, len - 1);
         }
         i += len - 1;
+        if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 200)
+        {
+          jpegxl::progress::advanceCurrentProg("",len - 1);
+          lastProgPrint = std::chrono::high_resolution_clock::now();
+        }
+        else{
+          jpegxl::progress::advanceCurrentProg("",len - 1,false);
+        }
       } else {
         // Literal, already pushed
       }
     }
+    jpegxl::progress::popStep("");
   }
-
+  jpegxl::progress::popStep("LZ77");
   if (bit_decrease > total_symbols * 0.2 + 16) {
     return tokens_lz77;
   }
@@ -571,7 +602,9 @@ std::vector<std::vector<Token>> ApplyLZ77_Optimal(
   HybridUintConfig uint_config;
   std::vector<float> sym_cost;
   std::vector<uint32_t> dist_symbols;
+  jpegxl::progress::addStep(jpegxl::progress::step("LZ77Optimal",tokens.size(),0,true));
   for (size_t stream = 0; stream < tokens.size(); stream++) {
+    jpegxl::progress::advanceCurrentProg("LZ77Optimal");
     size_t distance_multiplier =
         params.image_widths.size() > stream ? params.image_widths[stream] : 0;
     const auto& in = tokens[stream];
@@ -611,7 +644,17 @@ std::vector<std::vector<Token>> ApplyLZ77_Optimal(
 
     size_t rle_length = 0;
     size_t skip_lz77 = 0;
+    std::chrono::time_point<std::chrono::high_resolution_clock> lastProgPrint;
+    jpegxl::progress::addStep(jpegxl::progress::step("",in.size(),0,true));
     for (size_t i = 0; i < in.size(); i++) {
+      if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 200)
+      {
+        jpegxl::progress::advanceCurrentProg("");
+        lastProgPrint = std::chrono::high_resolution_clock::now();
+      }
+      else{
+        jpegxl::progress::advanceCurrentProg("",1,false);
+      }
       chain.Update(i);
       float lit_cost =
           prefix_costs[i].total_cost + sym_cost[i + 1] - sym_cost[i];
@@ -671,6 +714,7 @@ std::vector<std::vector<Token>> ApplyLZ77_Optimal(
         rle_length = 0;
       }
     }
+    jpegxl::progress::popStep("chain");
     size_t pos = in.size();
     while (pos > 0) {
       bool is_lz77_length = prefix_costs[pos].dist_symbol != 0;
@@ -690,6 +734,7 @@ std::vector<std::vector<Token>> ApplyLZ77_Optimal(
     }
     if (!out.empty()) std::reverse(out.begin(), out.end());
   }
+  jpegxl::progress::popStep("opt");
   return tokens_lz77;
 }
 
