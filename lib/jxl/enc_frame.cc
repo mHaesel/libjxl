@@ -2525,9 +2525,9 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       trialParams.lz77Method = HistogramParams::LZ77Method::kOptimal;
       JXL_RUN_FRAME_TRIAL("lz77Opt");
       jpegxl::progress::popStep("lz77opt");
-     }
+     }*/
      //how about no LZ77?
-     {
+     /*{
       jpegxl::progress::addStep(jpegxl::progress::step("lz77opt"));
       auto trialParams = cparams;
       trialParams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kNone;

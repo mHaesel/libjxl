@@ -502,7 +502,7 @@ void FindBestSplit(TreeSamples &tree_samples, float threshold,
                                used_properties, new_sp_range});
     }
     ++progressSplits;
-    if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 100)
+    if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 300)
     {
       jpegxl::progress::advanceCurrentProg("learn",progressSplits);
       progressSplits=0;

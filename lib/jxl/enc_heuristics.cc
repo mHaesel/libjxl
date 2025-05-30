@@ -1074,9 +1074,7 @@ Status LossyFrameHeuristics(const FrameHeader& frame_header,
     }
   }
 
-  jpegxl::progress::addStep(jpegxl::progress::step("globalScaleAndQuant"));
   const float quant_dc = InitialQuantDC(cparams.butteraugli_distance);
-  jpegxl::progress::popStep("globalScaleAndQuant");
 
   // TODO(veluca): we can now run all the code from here to FindBestQuantizer
   // (excluded) one rect at a time. Do that.
@@ -1163,22 +1161,17 @@ Status LossyFrameHeuristics(const FrameHeader& frame_header,
   jpegxl::progress::popStep("FindBestDequant");
 
   JXL_RETURN_IF_ERROR(cfl_heuristics.Init(rect));
-  jpegxl::progress::addStep(jpegxl::progress::step("cfl+acs",DivCeil(enc_state->shared.frame_dim.xsize_blocks, kEncTileDimInBlocks) *
-          DivCeil(enc_state->shared.frame_dim.ysize_blocks,
-                  kEncTileDimInBlocks),0,true));
   JXL_RETURN_IF_ERROR(acs_heuristics.Init(*opsin, rect, initial_quant_field,
                                           initial_quant_masking,
                                           initial_quant_masking1x1, &matrices));
-  std::chrono::time_point<std::chrono::high_resolution_clock> lastProgPrint;
+  size_t updateInter = 0;
+  size_t interCounter = 0;
   auto process_tile = [&](const uint32_t tid, const size_t thread) -> Status {
     size_t n_enc_tiles = DivCeil(frame_dim.xsize_blocks, kEncTileDimInBlocks);
-    if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 100)
+    if(interCounter++ >= updateInter)
     {
-      jpegxl::progress::advanceCurrentProg("cfl+acs");
-      lastProgPrint = std::chrono::high_resolution_clock::now();
-    }
-    else{
-      jpegxl::progress::advanceCurrentProg("cfl+acs",1,false);
+      jpegxl::progress::advanceCurrentProg("cfl+acs",interCounter);
+      interCounter = 0;
     }
     size_t tx = tid % n_enc_tiles;
     size_t ty = tid / n_enc_tiles;
@@ -1222,6 +1215,9 @@ Status LossyFrameHeuristics(const FrameHeader& frame_header,
   };
   size_t num_tiles = DivCeil(frame_dim.xsize_blocks, kEncTileDimInBlocks) *
                      DivCeil(frame_dim.ysize_blocks, kEncTileDimInBlocks);
+  jpegxl::progress::addStep(jpegxl::progress::step("cfl+acs",num_tiles,0,true));
+  updateInter = num_tiles/100;
+  if(updateInter==0)updateInter = 1;
   const auto prepare = [&](const size_t num_threads) -> Status {
     JXL_RETURN_IF_ERROR(acs_heuristics.PrepareForThreads(num_threads));
     JXL_RETURN_IF_ERROR(cfl_heuristics.PrepareForThreads(num_threads));
@@ -1229,12 +1225,8 @@ Status LossyFrameHeuristics(const FrameHeader& frame_header,
   };
   JXL_RETURN_IF_ERROR(
       RunOnPool(pool, 0, num_tiles, prepare, process_tile, "Enc Heuristics"));
-  jpegxl::progress::advanceCurrentProg("cfl+acs",0);
   JXL_RETURN_IF_ERROR(acs_heuristics.Finalize(frame_dim, ac_strategy, aux_out));
   jpegxl::progress::popStep("cfl+acs");
-    jpegxl::progress::addStep(jpegxl::progress::step("computeDC"));
-    jpegxl::progress::popStep("computeDC");
-
   jpegxl::progress::addStep(jpegxl::progress::step("bestQuant"));
   // Refine quantization levels.
   if (!streaming_mode && !cparams.disable_perceptual_optimizations) {
@@ -1248,10 +1240,10 @@ Status LossyFrameHeuristics(const FrameHeader& frame_header,
 
   // Choose a context model that depends on the amount of quantization for AC.
   if (cparams.speed_tier < SpeedTier::kFalcon && initialize_global_state) {
+    jpegxl::progress::addStep(jpegxl::progress::step("bestBlockEntropy"));
     FindBestBlockEntropyModel(cparams, raw_quant_field, ac_strategy,
                               &block_ctx_map);
-    jpegxl::progress::addStep(jpegxl::progress::step("bestNlockEntropy"));
-    jpegxl::progress::popStep("bestNlockEntropy");
+    jpegxl::progress::popStep("bestBlockEntropy");
   }
   return true;
 }

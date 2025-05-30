@@ -113,6 +113,7 @@ class SymbolCostEstimator {
 std::vector<std::vector<Token>> ApplyLZ77_RLE(
     const HistogramParams& params, size_t num_contexts,
     const std::vector<std::vector<Token>>& tokens, const LZ77Params& lz77) {
+  jpegxl::progress::addStep(jpegxl::progress::step("RLE"));
   std::vector<std::vector<Token>> tokens_lz77(tokens.size());
   // TODO(veluca): tune heuristics here.
   SymbolCostEstimator sce(num_contexts, params.force_huffman, tokens, lz77);
@@ -178,6 +179,7 @@ std::vector<std::vector<Token>> ApplyLZ77_RLE(
     }
   }
 
+  jpegxl::progress::popStep("RLE");
   if (bit_decrease > total_symbols * 0.2 + 16) {
     return tokens_lz77;
   }
@@ -499,17 +501,11 @@ std::vector<std::vector<Token>> ApplyLZ77_LZ77(
 
     // Whether the next symbol was already updated (to test lazy matching)
     jpegxl::progress::addStep(jpegxl::progress::step("",in.size(),0,true));
-    std::chrono::time_point<std::chrono::high_resolution_clock> lastProgPrint;
     bool already_updated = false;
+    size_t updateInter = in.size() / 100;
+    if(updateInter==0)updateInter=1;
+    size_t lastUpdate = 0;
     for (size_t i = 0; i < in.size(); i++) {
-      if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 200)
-      {
-        jpegxl::progress::advanceCurrentProg("");
-        lastProgPrint = std::chrono::high_resolution_clock::now();
-      }
-      else{
-        jpegxl::progress::advanceCurrentProg("",1,false);
-      }
       out.push_back(in[i]);
       if (!already_updated) chain.Update(i);
       already_updated = false;
@@ -524,14 +520,6 @@ std::vector<std::vector<Token>> ApplyLZ77_LZ77(
           if (len2 > len) {
             // Use the lazy match. Add literal, and use the next length starting
             // from the next byte.
-            if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 200)
-            {
-              jpegxl::progress::advanceCurrentProg("");
-              lastProgPrint = std::chrono::high_resolution_clock::now();
-            }
-            else{
-              jpegxl::progress::advanceCurrentProg("",1,false);
-            }
             ++i;
             already_updated = false;
             len = len2;
@@ -567,16 +555,13 @@ std::vector<std::vector<Token>> ApplyLZ77_LZ77(
           chain.Update(i + 1, len - 1);
         }
         i += len - 1;
-        if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 200)
-        {
-          jpegxl::progress::advanceCurrentProg("",len - 1);
-          lastProgPrint = std::chrono::high_resolution_clock::now();
-        }
-        else{
-          jpegxl::progress::advanceCurrentProg("",len - 1,false);
-        }
       } else {
         // Literal, already pushed
+      }
+      if(i - lastUpdate >= updateInter)
+      {
+        jpegxl::progress::advanceCurrentProg("",i - lastUpdate);
+        lastUpdate = i;
       }
     }
     jpegxl::progress::popStep("");
@@ -647,14 +632,7 @@ std::vector<std::vector<Token>> ApplyLZ77_Optimal(
     std::chrono::time_point<std::chrono::high_resolution_clock> lastProgPrint;
     jpegxl::progress::addStep(jpegxl::progress::step("",in.size(),0,true));
     for (size_t i = 0; i < in.size(); i++) {
-      if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()- lastProgPrint).count() > 200)
-      {
-        jpegxl::progress::advanceCurrentProg("");
-        lastProgPrint = std::chrono::high_resolution_clock::now();
-      }
-      else{
-        jpegxl::progress::advanceCurrentProg("",1,false);
-      }
+      jpegxl::progress::advanceCurrentProg("");
       chain.Update(i);
       float lit_cost =
           prefix_costs[i].total_cost + sym_cost[i + 1] - sym_cost[i];
@@ -714,7 +692,7 @@ std::vector<std::vector<Token>> ApplyLZ77_Optimal(
         rle_length = 0;
       }
     }
-    jpegxl::progress::popStep("chain");
+    jpegxl::progress::popStep("");
     size_t pos = in.size();
     while (pos > 0) {
       bool is_lz77_length = prefix_costs[pos].dist_symbol != 0;
@@ -734,7 +712,7 @@ std::vector<std::vector<Token>> ApplyLZ77_Optimal(
     }
     if (!out.empty()) std::reverse(out.begin(), out.end());
   }
-  jpegxl::progress::popStep("opt");
+  jpegxl::progress::popStep("LZ77Optimal");
   return tokens_lz77;
 }
 
