@@ -1122,6 +1122,7 @@ Status ModularFrameEncoder::ComputeEncodingData(
 }
 
 Status ModularFrameEncoder::ComputeTree(ThreadPool* pool) {
+  jpegxl::progress::addStep(jpegxl::progress::step("computeTree"));
   std::vector<ModularMultiplierInfo> multiplier_info;
   if (!quants_.empty()) {
     for (uint32_t stream_id = 0; stream_id < stream_images_.size();
@@ -1179,7 +1180,6 @@ Status ModularFrameEncoder::ComputeTree(ThreadPool* pool) {
     multiplier_info.resize(new_num);
   }
 
-  jpegxl::progress::addStep(jpegxl::progress::step("tree"));
   if (!cparams_.custom_fixed_tree.empty()) {
     tree_ = cparams_.custom_fixed_tree;
   } else if (cparams_.speed_tier < SpeedTier::kFalcon ||
@@ -1235,10 +1235,8 @@ Status ModularFrameEncoder::ComputeTree(ThreadPool* pool) {
                                   ThreadPool::NoInit, process_chunk,
                                   "LearnTrees"));
     tree_.clear();
-    jpegxl::progress::addStep(jpegxl::progress::step("merge trees"));
     JXL_RETURN_IF_ERROR(
         MergeTrees(trees, useful_splits, 0, useful_splits.size() - 1, &tree_));
-    jpegxl::progress::popStep("merge trees");
   } else {
     // Fixed tree.
     size_t total_pixels = 0;
@@ -1276,6 +1274,7 @@ Status ModularFrameEncoder::ComputeTree(ThreadPool* pool) {
       PrintTree(tree_, aux_out->debug_prefix + "/global_tree");
     }
   } */
+ jpegxl::progress::popStep("computeTree");
   return true;
 }
 
@@ -1284,8 +1283,10 @@ Status ModularFrameEncoder::ComputeTokens(ThreadPool* pool) {
   stream_headers_.resize(num_streams);
   tokens_.resize(num_streams);
   image_widths_.resize(num_streams);
+  jpegxl::progress::addStep(jpegxl::progress::step("computeTokens",num_streams,0,true));
   const auto process_stream = [&](const uint32_t stream_id,
                                   size_t /* thread */) -> Status {
+    jpegxl::progress::advanceCurrentProg("computeTokens");
     tokens_[stream_id].clear();
     JXL_RETURN_IF_ERROR(
         ModularCompress(stream_images_[stream_id], stream_options_[stream_id],
@@ -1295,7 +1296,7 @@ Status ModularFrameEncoder::ComputeTokens(ThreadPool* pool) {
   };
   JXL_RETURN_IF_ERROR(RunOnPool(pool, 0, num_streams, ThreadPool::NoInit,
                                 process_stream, "ComputeTokens"));
-  jpegxl::progress::popStep("tree");
+  jpegxl::progress::popStep("computeTokens");
   return true;
 }
 

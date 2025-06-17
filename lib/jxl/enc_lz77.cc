@@ -568,6 +568,7 @@ std::vector<std::vector<Token>> ApplyLZ77_LZ77(
   }
   jpegxl::progress::popStep("LZ77");
   if (bit_decrease > total_symbols * 0.2 + 16) {
+    jpegxl::progress::lazy::lastEncUsedLz77 = true;
     return tokens_lz77;
   }
   return {};

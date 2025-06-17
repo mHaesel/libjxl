@@ -1432,7 +1432,7 @@ Status EncodeGroups(const FrameHeader& frame_header,
   const auto process_group = [&](const uint32_t group_index,
                                  const size_t thread) -> Status {
     AuxOut* my_aux_out = aux_outs[thread].get();
-
+    jpegxl::progress::advanceCurrentProg("group");
     size_t ac_group_id =
         enc_state->streaming_mode
             ? enc_modular->ComputeStreamingAbsoluteAcGroupId(
@@ -1459,8 +1459,10 @@ Status EncodeGroups(const FrameHeader& frame_header,
     }
     return true;
   };
+  jpegxl::progress::addStep(jpegxl::progress::step("group",num_groups,0,true));
   JXL_RETURN_IF_ERROR(RunOnPool(pool, 0, num_groups, resize_aux_outs,
                                 process_group, "EncodeGroupCoefficients"));
+  jpegxl::progress::popStep("group");
   // Resizing aux_outs to 0 also Assimilates the array.
   static_cast<void>(resize_aux_outs(0));
 
@@ -1679,7 +1681,6 @@ Status ComputeEncodingData(
     mutable_frame_header.UpdateFlag(shared.image_features.splines.HasAny(),
                                     FrameHeader::kSplines);
   }
-
   JXL_RETURN_IF_ERROR(EncodeGroups(frame_header, &enc_state, &enc_modular, pool,
                                    group_codes, aux_out));
   if (enc_state.streaming_mode) {
@@ -2210,7 +2211,7 @@ Status EncodeFrameOneShot(JxlMemoryManager* memory_manager,
   return true;
 }
 
-#define JXL_RUN_FRAME_TRIAL( name )do{bool prevAllPal = frame_data.usesAllPal; bool prevXPal = frame_data.usesXPal; bool prevYPal = frame_data.usesYPal;  JxlEncoderOutputProcessorWrapper output_processor(memory_manager); JXL_RETURN_IF_ERROR(EncodeFrame(memory_manager, trialParams, frame_info, metadata, frame_data, cms,pool, &output_processor, aux_out)); JXL_RETURN_IF_ERROR(output_processor.SetFinalizedPosition()); std::vector<uint8_t> output; JXL_RETURN_IF_ERROR(output_processor.CopyOutput(output)); /*std::cout<<output.size()<<" || "<<name;if(bestSize>output.size() && bestSize !=std::numeric_limits<size_t>::max())std::cout<<" -"<<(bestSize - output.size());std::cout<<std::endl*/; if(output.size() < bestSize) {    bestSize = output.size();   bestOutput = trialVecPtr(new trialVec(std::move(output)));   cparams = trialParams; }else {    frame_data.usesAllPal = prevAllPal;    frame_data.usesXPal = prevXPal;frame_data.usesYPal = prevYPal;  }}while(0);
+#define JXL_RUN_FRAME_TRIAL( name )do{jpegxl::progress::lazy::lastEncUsedLz77 = false; bool prevAllPal = frame_data.usesAllPal; bool prevXPal = frame_data.usesXPal; bool prevYPal = frame_data.usesYPal;  JxlEncoderOutputProcessorWrapper output_processor(memory_manager); JXL_RETURN_IF_ERROR(EncodeFrame(memory_manager, trialParams, frame_info, metadata, frame_data, cms,pool, &output_processor, aux_out)); JXL_RETURN_IF_ERROR(output_processor.SetFinalizedPosition()); std::vector<uint8_t> output; JXL_RETURN_IF_ERROR(output_processor.CopyOutput(output)); /*std::cout<<output.size()<<" || "<<name;if(bestSize>output.size() && bestSize !=std::numeric_limits<size_t>::max())std::cout<<" -"<<(bestSize - output.size());std::cout<<" || LZ77Used="<<jpegxl::progress::lazy::lastEncUsedLz77;std::cout<<std::endl;*/ if(output.size() < bestSize) {    bestSize = output.size();   bestOutput = trialVecPtr(new trialVec(std::move(output)));   cparams = trialParams; bestEncUsedLz77 = jpegxl::progress::lazy::lastEncUsedLz77; }else {    frame_data.usesAllPal = prevAllPal;    frame_data.usesXPal = prevXPal;frame_data.usesYPal = prevYPal;  }}while(0);
 using trialVecPtr = std::unique_ptr<std::vector<uint8_t>>;
 using trialVec = std::vector<uint8_t>;
 
@@ -2223,6 +2224,7 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
 {
     auto cparams = cparams_orig;
     cparams.brotli_effort=11;
+    bool bestEncUsedLz77 = false;
     cparams.preview = Override::kOff;
     cparams.speed_tier = SpeedTier::kGlacier;
     size_t bestSize{std::numeric_limits<size_t>::max()};
@@ -2252,9 +2254,9 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       cparams.options.predictor = Predictor::Variable; //Usually the best. On al arge test set, other predictors rarely improved upon this by a few byts, not worth it
       cparams.options.histogram_params.clustering = HistogramParams::ClusteringType::kBest;
       cparams.options.histogram_params.uint_method = HistogramParams::HybridUintMethod::kBest;
-      cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kNone;
+      cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kRLE;
       cparams.options.histogram_params.ans_histogram_strategy = HistogramParams::ANSHistogramStrategy::kPrecise;
-      cparams.lz77Method = HistogramParams::LZ77Method::kNone;
+      cparams.lz77Method = HistogramParams::LZ77Method::kRLE;
       cparams.options.nb_repeats = 1.0f;//On 6000 jpgs, this was always better than the default
       auto jpegDataMasterCopy = frame_data.TakeJPEGData();//JpegData is moved internally, so we copy it for each trial
       for(int i = static_cast<int>(SpeedTier::kTortoise); i <= static_cast<int>(SpeedTier::kTortoise) ;++i) //only e 10 and e 9 seem to be worth it, but the difference is small
@@ -2319,46 +2321,35 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       }
       jpegxl::progress::popStep("patches");
 
-      //I found the case were Zero without Patches was better than variable, but with Patches variable was better, so....
-      //This is a rare trial
-      if( cparams.patches == Override::kOn && cparams.options.predictor == Predictor::Zero)
-      {
-        jpegxl::progress::addStep(jpegxl::progress::step("patch_Z_V"));
-        auto trialParams = cparams;
-        trialParams.options.predictor = Predictor::Variable;
-        JXL_RUN_FRAME_TRIAL("patch_Z_V"); 
-        jpegxl::progress::popStep("patch_Z_V");
-      }
-
       //If the default XPal settings caused the xpal to be used, try disabling it, somewhat effective trial
       if(frame_data.usesXPal)
       {
-        jpegxl::progress::addStep(jpegxl::progress::step("XPal"));
+        jpegxl::progress::addStep(jpegxl::progress::step("noXPal"));
         auto trialParams = cparams;
         trialParams.channel_colors_percent = 0.f;
         JXL_RUN_FRAME_TRIAL("noXPal"); 
-        jpegxl::progress::popStep("XPal");
+        jpegxl::progress::popStep("noXPal");
       }
 
       //If the default YPal settings caused the ypal to be used, try disabling it, somewhat effective trial
       if(frame_data.usesYPal)
       {
-        jpegxl::progress::addStep(jpegxl::progress::step("YPal"));
+        jpegxl::progress::addStep(jpegxl::progress::step("noYPal"));
         auto trialParams = cparams;
         trialParams.channel_colors_pre_transform_percent = 0.f;
         JXL_RUN_FRAME_TRIAL("noYPal"); 
-        jpegxl::progress::popStep("YPal");
+        jpegxl::progress::popStep("noYPal");
 
       }
 
       //If we used the palette mode, try without it. Rarely leads to some nice gains
       if(frame_data.usesAllPal)
       {
-        jpegxl::progress::addStep(jpegxl::progress::step("AllPal"));
+        jpegxl::progress::addStep(jpegxl::progress::step("noPal"));
         auto trialParams = cparams;
         trialParams.palette_colors = 0;
         JXL_RUN_FRAME_TRIAL("noPal"); 
-        jpegxl::progress::popStep("AllPal");
+        jpegxl::progress::popStep("noPal");
       }
 
       { //This trial often improves results (but not always), but slows down further trials, so we do it late
@@ -2382,14 +2373,13 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       //Only slows down on images with alpha, so its worth
       if(metadata->m.HasAlpha())//do not change invisible pixels for patches???
       {
-        jpegxl::progress::addStep(jpegxl::progress::step("alpha"));
+        jpegxl::progress::addStep(jpegxl::progress::step("noKeepInvisible"));
         auto trialParams = cparams;
         trialParams.keep_invisible = Override::kOff;
         trialParams.patches = Override::kOff;//bug with patches?
         JXL_RUN_FRAME_TRIAL("noKeepInvisible"); 
-        jpegxl::progress::popStep("alpha");
+        jpegxl::progress::popStep("noKeepInvisible");
       }
-      
       //Predictors rarely improve things much over the variable predictor mode
       //The enabled predictors were chosen after some testing on a reltively small but varied set of files
       //On large images variable predictor is almost always best
@@ -2461,7 +2451,17 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
         jpegxl::progress::popStep(predString.c_str());
       }
 
-      
+      //I found the case were Zero without Patches was better than variable, but with Patches variable was better, so....
+      //This is a rare trial
+      if( cparams.patches == Override::kOn && cparams.options.predictor == Predictor::Zero)
+      {
+        jpegxl::progress::addStep(jpegxl::progress::step("patch_Z_V"));
+        auto trialParams = cparams;
+        trialParams.options.predictor = Predictor::Variable;
+        JXL_RUN_FRAME_TRIAL("patch_Z_V"); 
+        jpegxl::progress::popStep("patch_Z_V");
+      }
+
       /*//These are not worthwile really, so far minor effects and usually on very weird small images
       for(HistogramParams::ClusteringType clust: {
         HistogramParams::ClusteringType::kFastest
@@ -2503,7 +2503,7 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       {
         jpegxl::progress::addStep(jpegxl::progress::step("E"));
         auto trialParams = cparams;
-        trialParams.options.max_properties = 6;//arbitrary, but high enough to cover three color channels + 1 alpha channel
+        trialParams.options.max_properties = 11;
         JXL_RUN_FRAME_TRIAL("ExtraChannels"); 
         jpegxl::progress::popStep("E");
       }
@@ -2517,15 +2517,15 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       }*/
 
      //LZ77
-     /*if(bestSize <= 20000)
-     {//Instead of running this trial, we could just use opt always (as it include whatever lz77 does), but slowdown on some files is too large
+     if(bestEncUsedLz77)
+     {//Instead of running this trial, we could just use opt always (as it include whatever lz77 does), but slowdown on some files (especially with Predictor Zero) is too large
       jpegxl::progress::addStep(jpegxl::progress::step("lz77opt"));
       auto trialParams = cparams;
       trialParams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kOptimal;
       trialParams.lz77Method = HistogramParams::LZ77Method::kOptimal;
       JXL_RUN_FRAME_TRIAL("lz77Opt");
       jpegxl::progress::popStep("lz77opt");
-     }*/
+     }
      //how about no LZ77?
      /*{
       jpegxl::progress::addStep(jpegxl::progress::step("lz77opt"));
@@ -2544,13 +2544,8 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       cparams.options.histogram_params.clustering = HistogramParams::ClusteringType::kBest;
       cparams.options.histogram_params.uint_method = HistogramParams::HybridUintMethod::kBest;
       cparams.options.histogram_params.ans_histogram_strategy = HistogramParams::ANSHistogramStrategy::kPrecise;
-      cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kNone;
-      cparams.lz77Method = HistogramParams::LZ77Method::kNone;
-      if(!tryForPatches) //when we are encoding a patch, lz77 can be helpful
-      {
-        cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kLZ77;
-        cparams.lz77Method = HistogramParams::LZ77Method::kLZ77;
-      }
+      cparams.options.histogram_params.lz77_method = HistogramParams::LZ77Method::kOptimal;
+      cparams.lz77Method = HistogramParams::LZ77Method::kOptimal;
 
       if(metadata->m.HasAlpha())
       {
@@ -2558,20 +2553,22 @@ Status EncodeFrameTrials( JxlMemoryManager* memory_manager,
       }
       {
         auto trialParams = cparams;
-        JXL_RUN_FRAME_TRIAL("lossyAlpha");
+        JXL_RUN_FRAME_TRIAL("lossy");
       }
       if(metadata->m.HasAlpha())
       {
-        jpegxl::progress::addStep(jpegxl::progress::step("alpha"));
+        jpegxl::progress::addStep(jpegxl::progress::step("losslesAlpha_keep_invis"));
         auto trialParams = cparams;
         trialParams.keep_invisible = Override::kOn;
         trialParams.ec_distance[0] = 0.0f;
-        JXL_RUN_FRAME_TRIAL("losslesAlphaButKeepInvis");
+        JXL_RUN_FRAME_TRIAL("losslesAlpha_keep_invis");
+        jpegxl::progress::popStep("losslesAlpha_keep_invis");
+        jpegxl::progress::addStep(jpegxl::progress::step("losslesAlpha"));
         trialParams = cparams;
         trialParams.keep_invisible = Override::kOff;
         trialParams.ec_distance[0] = 0.0f;
         JXL_RUN_FRAME_TRIAL("losslesAlpha");
-        jpegxl::progress::popStep("alpha");
+        jpegxl::progress::popStep("losslesAlpha");
       }
     }
 

@@ -13,6 +13,13 @@
 namespace jpegxl{
   namespace progress
   {
+    namespace lazy
+    {
+      //here I recall some global state because I am lazy
+      //this goes true if some lz77 was actually used anywhere while encoding
+      //so somebody else has to reset it...
+      inline bool lastEncUsedLz77 = false;
+    }
     struct step
     {
       step(){}
