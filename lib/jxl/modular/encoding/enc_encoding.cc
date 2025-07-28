@@ -37,6 +37,8 @@
 #include "lib/jxl/modular/options.h"
 #include "lib/jxl/pack_signed.h"
 
+
+#include "lib/jxl/progress_manager.h"
 namespace jxl {
 
 namespace {
@@ -567,19 +569,25 @@ StatusOr<Tree> LearnTree(
   std::vector<pixel_type> diff_samples;
   std::vector<uint32_t> group_pixel_count;
   std::vector<uint32_t> channel_pixel_count;
+  jpegxl::progress::addStep(jpegxl::progress::step("collectSamples",stop,0,true));
   for (uint32_t i = start; i < stop; i++) {
+    jpegxl::progress::advanceCurrentProg("collectSamples");
     max_c = std::max<uint32_t>(images[i].channel.size(), max_c);
     CollectPixelSamples(images[i], options[i], i, group_pixel_count,
                         channel_pixel_count, pixel_samples, diff_samples);
   }
+  jpegxl::progress::popStep("collectSamples");
   StaticPropRange range;
   range[0] = {{0, max_c}};
   range[1] = {{start, stop}};
 
+  jpegxl::progress::addStep(jpegxl::progress::step("preQuantProps"));
   tree_samples.PreQuantizeProperties(
       range, multiplier_info, group_pixel_count, channel_pixel_count,
       pixel_samples, diff_samples, options[start].max_property_values);
+  jpegxl::progress::popStep("preQuantProps");
 
+  jpegxl::progress::addStep(jpegxl::progress::step("countTotalPixels"));
   size_t total_pixels = 0;
   for (size_t i = 0; i < images[start].channel.size(); i++) {
     if (i >= images[start].nb_meta_channels &&
@@ -590,10 +598,13 @@ StatusOr<Tree> LearnTree(
     total_pixels += images[start].channel[i].w * images[start].channel[i].h;
   }
   total_pixels = std::max<size_t>(total_pixels, 1);
+  jpegxl::progress::popStep("countTotalPixels");
 
   weighted::Header wp_header;
 
+  jpegxl::progress::addStep(jpegxl::progress::step("gather",stop,0,true));
   for (size_t i = start; i < stop; i++) {
+    jpegxl::progress::advanceCurrentProg("gather");
     size_t nb_channels = images[i].channel.size();
 
     if (images[i].w == 0 || images[i].h == 0 || nb_channels < 1)
@@ -625,6 +636,7 @@ StatusOr<Tree> LearnTree(
                                          tree_samples, &total_pixels));
     }
   }
+  jpegxl::progress::popStep("gather");
 
   // TODO(veluca): parallelize more.
   JXL_ASSIGN_OR_RETURN(Tree tree,

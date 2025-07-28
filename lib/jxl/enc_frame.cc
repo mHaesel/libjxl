@@ -1432,7 +1432,7 @@ Status EncodeGroups(const FrameHeader& frame_header,
   const auto process_group = [&](const uint32_t group_index,
                                  const size_t thread) -> Status {
     AuxOut* my_aux_out = aux_outs[thread].get();
-    jpegxl::progress::advanceCurrentProg("group");
+    jpegxl::progress::advanceCurrentProg("ac");
     size_t ac_group_id =
         enc_state->streaming_mode
             ? enc_modular->ComputeStreamingAbsoluteAcGroupId(
@@ -1459,10 +1459,10 @@ Status EncodeGroups(const FrameHeader& frame_header,
     }
     return true;
   };
-  jpegxl::progress::addStep(jpegxl::progress::step("group",num_groups,0,true));
+  jpegxl::progress::addStep(jpegxl::progress::step("ac",num_groups,0,true));
   JXL_RETURN_IF_ERROR(RunOnPool(pool, 0, num_groups, resize_aux_outs,
                                 process_group, "EncodeGroupCoefficients"));
-  jpegxl::progress::popStep("group");
+  jpegxl::progress::popStep("ac");
   // Resizing aux_outs to 0 also Assimilates the array.
   static_cast<void>(resize_aux_outs(0));
 
@@ -2072,7 +2072,9 @@ JXL_NOINLINE Status EncodeFrameStreaming(
   PaddedBytes dc_global_bytes{memory_manager};
   std::vector<size_t> group_sizes;
   size_t start_pos = output_processor->CurrentPosition();
+  jpegxl::progress::addStep(jpegxl::progress::step("dc",dc_group_order.size(),0,true));
   for (size_t i = 0; i < dc_group_order.size(); ++i) {
+    jpegxl::progress::advanceCurrentProg("dc");
     size_t dc_ix = dc_group_order[i];
     size_t dc_y = dc_ix / dc_group_xsize;
     size_t dc_x = dc_ix % dc_group_xsize;
@@ -2130,6 +2132,7 @@ JXL_NOINLINE Status EncodeFrameStreaming(
     JXL_RETURN_IF_ERROR(
         OutputGroups(std::move(group_codes), &group_sizes, output_processor));
   }
+  jpegxl::progress::popStep("dc");
   if (frame_header.encoding == FrameEncoding::kVarDCT) {
     JXL_RETURN_IF_ERROR(
         OutputAcGlobal(*enc_state, frame_header.ToFrameDimensions(),

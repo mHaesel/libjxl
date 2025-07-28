@@ -1125,8 +1125,10 @@ Status ModularFrameEncoder::ComputeTree(ThreadPool* pool) {
   jpegxl::progress::addStep(jpegxl::progress::step("computeTree"));
   std::vector<ModularMultiplierInfo> multiplier_info;
   if (!quants_.empty()) {
+    jpegxl::progress::addStep(jpegxl::progress::step("streamPrep",stream_images_.size(),true));
     for (uint32_t stream_id = 0; stream_id < stream_images_.size();
          stream_id++) {
+      jpegxl::progress::advanceCurrentProg("streamPrep");
       // skip non-modular stream_ids
       if (stream_id > 0 && gi_channel_[stream_id].empty()) continue;
       const Image& image = stream_images_[stream_id];
@@ -1159,15 +1161,20 @@ Status ModularFrameEncoder::ComputeTree(ThreadPool* pool) {
         }
       }
     }
+    jpegxl::progress::popStep("streamPrep");
     // Merge group+channel settings that have the same channels and quantization
     // factors, to avoid unnecessary nodes.
+    jpegxl::progress::addStep(jpegxl::progress::step("sort"));
     std::sort(multiplier_info.begin(), multiplier_info.end(),
               [](ModularMultiplierInfo a, ModularMultiplierInfo b) {
                 return std::make_tuple(a.range, a.multiplier) <
                        std::make_tuple(b.range, b.multiplier);
               });
+    jpegxl::progress::popStep("sort");
     size_t new_num = 1;
+    jpegxl::progress::addStep(jpegxl::progress::step("multInfo",multiplier_info.size(),true));
     for (size_t i = 1; i < multiplier_info.size(); i++) {
+      jpegxl::progress::advanceCurrentProg("multInfo");
       ModularMultiplierInfo& prev = multiplier_info[new_num - 1];
       ModularMultiplierInfo& cur = multiplier_info[i];
       if (prev.range[0] == cur.range[0] && prev.multiplier == cur.multiplier &&
@@ -1178,6 +1185,7 @@ Status ModularFrameEncoder::ComputeTree(ThreadPool* pool) {
       }
     }
     multiplier_info.resize(new_num);
+    jpegxl::progress::popStep("multInfo");
   }
 
   if (!cparams_.custom_fixed_tree.empty()) {
@@ -1187,7 +1195,9 @@ Status ModularFrameEncoder::ComputeTree(ThreadPool* pool) {
     // Avoid creating a tree with leaves that don't correspond to any pixels.
     std::vector<size_t> useful_splits;
     useful_splits.reserve(tree_splits_.size());
+    jpegxl::progress::addStep(jpegxl::progress::step("pruneSplits",tree_splits_.size() - 1,0,true));
     for (size_t chunk = 0; chunk < tree_splits_.size() - 1; chunk++) {
+      jpegxl::progress::advanceCurrentProg("pruneSplits");
       bool has_pixels = false;
       size_t start = tree_splits_[chunk];
       size_t stop = tree_splits_[chunk + 1];
@@ -1198,6 +1208,7 @@ Status ModularFrameEncoder::ComputeTree(ThreadPool* pool) {
         useful_splits.push_back(tree_splits_[chunk]);
       }
     }
+    jpegxl::progress::popStep("pruneSplits");
     // Don't do anything if modular mode does not have any pixels in this image
     if (useful_splits.empty()) return true;
     useful_splits.push_back(tree_splits_.back());
@@ -1217,7 +1228,9 @@ Status ModularFrameEncoder::ComputeTree(ThreadPool* pool) {
             LearnTree(stream_images_.data(), stream_options_.data(), start,
                       stop, multiplier_info));
       } else {
+        jpegxl::progress::addStep(jpegxl::progress::step("preDefTree"));
         size_t total_pixels = 0;
+        
         for (size_t i = start; i < stop; i++) {
           for (const Channel& ch : stream_images_[i].channel) {
             total_pixels += ch.w * ch.h;
@@ -1227,6 +1240,7 @@ Status ModularFrameEncoder::ComputeTree(ThreadPool* pool) {
 
         trees[chunk] = PredefinedTree(stream_options_[start].tree_kind,
                                       total_pixels, 8, 0);
+        jpegxl::progress::popStep("preDefTree");
       }
 
       return true;
@@ -1235,10 +1249,13 @@ Status ModularFrameEncoder::ComputeTree(ThreadPool* pool) {
                                   ThreadPool::NoInit, process_chunk,
                                   "LearnTrees"));
     tree_.clear();
+    jpegxl::progress::addStep(jpegxl::progress::step("mergeTrees"));
     JXL_RETURN_IF_ERROR(
         MergeTrees(trees, useful_splits, 0, useful_splits.size() - 1, &tree_));
+    jpegxl::progress::popStep("mergeTrees");
   } else {
     // Fixed tree.
+    jpegxl::progress::addStep(jpegxl::progress::step("fixedTree"));
     size_t total_pixels = 0;
     int max_bitdepth = 0;
     for (const Image& img : stream_images_) {
@@ -1257,6 +1274,7 @@ Status ModularFrameEncoder::ComputeTree(ThreadPool* pool) {
     } else {
       tree_ = {PropertyDecisionNode::Leaf(Predictor::Gradient)};
     }
+    jpegxl::progress::popStep("fixedTree");
   }
   tree_tokens_.resize(1);
   tree_tokens_[0].clear();
@@ -1274,7 +1292,7 @@ Status ModularFrameEncoder::ComputeTree(ThreadPool* pool) {
       PrintTree(tree_, aux_out->debug_prefix + "/global_tree");
     }
   } */
- jpegxl::progress::popStep("computeTree");
+  jpegxl::progress::popStep("computeTree");
   return true;
 }
 

@@ -1130,7 +1130,9 @@ StatusOr<size_t> BuildAndEncodeHistograms(
     if (ans_fuzzer_friendly_) {
       uint_config = HybridUintConfig(10, 0, 0);
     }
+    jpegxl::progress::addStep(jpegxl::progress::step("encodeTokens",tokens.size(),0,true));
     for (const auto& stream : tokens) {
+      jpegxl::progress::advanceCurrentProg("encodeTokens");
       if (codes->lz77.enabled) {
         for (const auto& token : stream) {
           total_tokens++;
@@ -1185,11 +1187,12 @@ StatusOr<size_t> BuildAndEncodeHistograms(
       }
       codes->use_prefix_code = use_prefix_code;
     }
-
+    jpegxl::progress::popStep("encodeTokens");
     if (params.add_fixed_histograms) {
       // TODO(szabadka) Add more fixed histograms.
       // TODO(szabadka) Reduce alphabet size by choosing a non-default
       // uint_config.
+      jpegxl::progress::addStep(jpegxl::progress::step("buildANSdata"));
       const size_t alphabet_size = ANS_MAX_ALPHABET_SIZE;
       codes->log_alpha_size = 8;
       JXL_ENSURE(alphabet_size == 1u << codes->log_alpha_size);
@@ -1211,14 +1214,17 @@ StatusOr<size_t> BuildAndEncodeHistograms(
             (void)ans_cost;
             return true;
           }));
+      jpegxl::progress::popStep("buildANSdata");
     }
 
     // Encode histograms.
+    jpegxl::progress::addStep(jpegxl::progress::step("buildEntropyCodes"));
     JXL_ASSIGN_OR_RETURN(
         size_t entropy_bits,
         codes->BuildAndStoreEntropyCodes(memory_manager, params, tokens,
                                          builder, writer, layer, aux_out));
     cost += entropy_bits;
+    jpegxl::progress::popStep("buildEntropyCodes");
     return true;
   };
   if (writer) {
