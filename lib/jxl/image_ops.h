@@ -22,6 +22,8 @@
 #include "lib/jxl/frame_dimensions.h"
 #include "lib/jxl/image.h"
 
+#include "lib/jxl/progress_manager.h"
+
 namespace jxl {
 
 // Works for mixed image-like argument types.
@@ -142,12 +144,15 @@ StatusOr<Plane<T>> LinComb(const T lambda1, const Plane<T>& image1,
 // Multiplies image by lambda in-place
 template <typename T>
 void ScaleImage(const T lambda, Plane<T>* image) {
+  jpegxl::progress::addStep(jpegxl::progress::step("scaleImage",image->ysize()*image->xsize()+1,0,true));
   for (size_t y = 0; y < image->ysize(); ++y) {
     T* const JXL_RESTRICT row = image->Row(y);
     for (size_t x = 0; x < image->xsize(); ++x) {
+      jpegxl::progress::advanceCurrentProg("scaleImage");
       row[x] = lambda * row[x];
     }
   }
+  jpegxl::progress::popStep("scaleImage");
 }
 
 // Multiplies image by lambda in-place

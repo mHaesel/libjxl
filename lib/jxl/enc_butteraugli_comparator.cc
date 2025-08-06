@@ -97,7 +97,9 @@ Status JxlButteraugliComparator::CompareWith(const ImageBundle& actual,
       comparator_->Diffmap(*scaled_actual_linear_srgb, temp_diffmap));
 
   if (score != nullptr) {
+    jpegxl::progress::addStep(jpegxl::progress::step("ButteraugliScoreFromDiffMap"));
     *score = ButteraugliScoreFromDiffmap(temp_diffmap, &params_);
+    jpegxl::progress::popStep("ButteraugliScoreFromDiffMap");
   }
   if (diffmap != nullptr) {
     diffmap->Swap(temp_diffmap);

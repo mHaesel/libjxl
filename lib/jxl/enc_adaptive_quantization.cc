@@ -843,6 +843,7 @@ StatusOr<ImageBundle> RoundtripImage(const FrameHeader& frame_header,
                                      PassesEncoderState* enc_state,
                                      const JxlCmsInterface& cms,
                                      ThreadPool* pool) {
+  jpegxl::progress::addStep(jpegxl::progress::step("roundTripImage"));
   JxlMemoryManager* memory_manager = enc_state->memory_manager();
   std::unique_ptr<PassesDecoderState> dec_state =
       jxl::make_unique<PassesDecoderState>(memory_manager);
@@ -897,6 +898,7 @@ StatusOr<ImageBundle> RoundtripImage(const FrameHeader& frame_header,
   };
   const auto process_group = [&](const uint32_t group_index,
                                  const size_t thread) -> Status {
+    jpegxl::progress::advanceCurrentProg("aq");
     if (frame_header.loop_filter.epf_iters > 0) {
       JXL_RETURN_IF_ERROR(
           ComputeSigma(frame_header.loop_filter,
@@ -915,12 +917,14 @@ StatusOr<ImageBundle> RoundtripImage(const FrameHeader& frame_header,
     JXL_RETURN_IF_ERROR(input.Done());
     return true;
   };
+  jpegxl::progress::addStep(jpegxl::progress::step("aq",num_groups+1,0,true));
   JXL_RETURN_IF_ERROR(RunOnPool(pool, 0, num_groups, allocate_storage,
                                 process_group, "AQ loop"));
+  jpegxl::progress::popStep("aq");
 
   // Ensure we don't create any new special frames.
   enc_state->special_frames.resize(num_special_frames);
-
+  jpegxl::progress::popStep("roundTripImage");
   return decoded;
 }
 
@@ -952,19 +956,23 @@ Status FindBestQuantization(const FrameHeader& frame_header,
       tf.IsPQ() || tf.IsHLG()
           ? frame_header.nonserialized_metadata->m.IntensityTarget()
           : 80.f;
+  jpegxl::progress::addStep(jpegxl::progress::step("setLinearReferenceImage"));
   JxlButteraugliComparator comparator(params, cms);
   JXL_RETURN_IF_ERROR(comparator.SetLinearReferenceImage(linear));
+  jpegxl::progress::popStep("setLinearReferenceImage");
   bool lower_is_better =
       (comparator.GoodQualityScore() < comparator.BadQualityScore());
   const float initial_quant_dc = InitialQuantDC(butteraugli_target);
   JXL_RETURN_IF_ERROR(AdjustQuantField(enc_state->shared.ac_strategy,
                                        Rect(quant_field), original_butteraugli,
                                        &quant_field));
+  jpegxl::progress::addStep(jpegxl::progress::step("copyImageTo"));
   ImageF tile_distmap;
   JXL_ASSIGN_OR_RETURN(
       ImageF initial_quant_field,
       ImageF::Create(memory_manager, quant_field.xsize(), quant_field.ysize()));
   JXL_RETURN_IF_ERROR(CopyImageTo(quant_field, &initial_quant_field));
+  jpegxl::progress::popStep("copyImageTo");
 
   float initial_qf_min;
   float initial_qf_max;
@@ -995,21 +1003,27 @@ Status FindBestQuantization(const FrameHeader& frame_header,
       }
     }
     jpegxl::progress::advanceCurrentProg("iter");
+    jpegxl::progress::addStep(jpegxl::progress::step("setQuantField"));
     JXL_RETURN_IF_ERROR(quantizer.SetQuantField(initial_quant_dc, quant_field,
                                                 &raw_quant_field));
+    jpegxl::progress::popStep("setQuantField");
     JXL_ASSIGN_OR_RETURN(
         ImageBundle dec_linear,
         RoundtripImage(frame_header, opsin, enc_state, cms, pool));
     float score;
     ImageF diffmap;
+    jpegxl::progress::addStep(jpegxl::progress::step("compare"));
     JXL_RETURN_IF_ERROR(comparator.CompareWith(dec_linear, &diffmap, &score));
+    jpegxl::progress::popStep("compare");
     if (!lower_is_better) {
       score = -score;
       ScaleImage(-1.0f, &diffmap);
     }
+    jpegxl::progress::addStep(jpegxl::progress::step("tileDistMap"));
     JXL_ASSIGN_OR_RETURN(tile_distmap,
                          TileDistMap(diffmap, 8 * cparams.resampling, 0,
                                      enc_state->shared.ac_strategy));
+    jpegxl::progress::popStep("tileDistMap");
     if (JXL_DEBUG_ADAPTIVE_QUANTIZATION && WantDebugOutput(cparams)) {
       JXL_RETURN_IF_ERROR(DumpImage(cparams, ("dec" + ToString(i)).c_str(),
                                     *dec_linear.color()));
@@ -1032,7 +1046,7 @@ Status FindBestQuantization(const FrameHeader& frame_header,
     }
 
     if (i == iters) break;
-
+    jpegxl::progress::addStep(jpegxl::progress::step("calc"));
     double kPow[8] = {
         0.2, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     };
@@ -1111,10 +1125,13 @@ Status FindBestQuantization(const FrameHeader& frame_header,
         }
       }
     }
+    jpegxl::progress::popStep("calc");
   }
+  jpegxl::progress::popStep("iter");
+  jpegxl::progress::addStep(jpegxl::progress::step("setQuantField"));
   JXL_RETURN_IF_ERROR(
       quantizer.SetQuantField(initial_quant_dc, quant_field, &raw_quant_field));
-  jpegxl::progress::popStep("iter");
+  jpegxl::progress::popStep("setQuantField");
   return true;
 }
 
@@ -1220,10 +1237,12 @@ Status AdjustQuantField(const AcStrategyImage& ac_strategy, const Rect& rect,
       }
     }
   }
+  jpegxl::progress::addStep(jpegxl::progress::step("adjustQuantField",rect.xsize()*rect.ysize()+1,0,true));
   for (size_t y = 0; y < rect.ysize(); ++y) {
     AcStrategyRow ac_strategy_row = ac_strategy.ConstRow(rect, y);
     float* JXL_RESTRICT quant_row = rect.Row(quant_field, y);
     for (size_t x = 0; x < rect.xsize(); ++x) {
+      jpegxl::progress::advanceCurrentProg("adjustQuantField");
       AcStrategy acs = ac_strategy_row[x];
       if (!acs.IsFirstBlock()) continue;
       JXL_ENSURE(x + acs.covered_blocks_x() <= quant_field->xsize());
@@ -1248,6 +1267,7 @@ Status AdjustQuantField(const AcStrategyImage& ac_strategy, const Rect& rect,
       }
     }
   }
+  jpegxl::progress::popStep("adjustQuantField");
   return true;
 }
 

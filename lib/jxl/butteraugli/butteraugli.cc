@@ -1827,6 +1827,7 @@ Status ButteraugliComparator::Mask(ImageF* BUTTERAUGLI_RESTRICT mask) const {
 
 Status ButteraugliComparator::Diffmap(const Image3F& rgb1,
                                       ImageF& result) const {
+  jpegxl::progress::addStep(jpegxl::progress::step("Diffmap",34 + 1,0,true));
   JxlMemoryManager* memory_manager = rgb1.memory_manager();
   if (xsize_ < 8 || ysize_ < 8) {
     ZeroFillImage(&result);
@@ -1834,10 +1835,14 @@ Status ButteraugliComparator::Diffmap(const Image3F& rgb1,
   }
   JXL_ASSIGN_OR_RETURN(Image3F xyb1,
                        Image3F::Create(memory_manager, xsize_, ysize_));
+  jpegxl::progress::advanceCurrentProg("Diffmap");
+
   JXL_RETURN_IF_ERROR(HWY_DYNAMIC_DISPATCH(OpsinDynamicsImage)(
       rgb1, params_, Temp(), &blur_temp_, &xyb1));
   ReleaseTemp();
+  jpegxl::progress::advanceCurrentProg("Diffmap");
   JXL_RETURN_IF_ERROR(DiffmapOpsinDynamicsImage(xyb1, result));
+  jpegxl::progress::advanceCurrentProg("Diffmap");
   if (sub_) {
     if (sub_->xsize_ < 8 || sub_->ysize_ < 8) {
       return true;
@@ -1853,6 +1858,8 @@ Status ButteraugliComparator::Diffmap(const Image3F& rgb1,
     JXL_RETURN_IF_ERROR(sub_->DiffmapOpsinDynamicsImage(sub_xyb, subresult));
     AddSupersampled2x(subresult, 0.5, result);
   }
+  jpegxl::progress::advanceCurrentProg("Diffmap");
+  jpegxl::progress::popStep("Diffmap");
   return true;
 }
 
@@ -1903,29 +1910,37 @@ Status ButteraugliComparator::DiffmapPsychoImage(const PsychoImage& pi1,
 
   JXL_ASSIGN_OR_RETURN(ImageF diffs,
                        ImageF::Create(memory_manager, xsize_, ysize_));
+  jpegxl::progress::advanceCurrentProg("Diffmap");
   JXL_ASSIGN_OR_RETURN(Image3F block_diff_ac,
                        Image3F::Create(memory_manager, xsize_, ysize_));
+  jpegxl::progress::advanceCurrentProg("Diffmap");
   ZeroFillImage(&block_diff_ac);
+  jpegxl::progress::advanceCurrentProg("Diffmap");
   JXL_RETURN_IF_ERROR(MaltaDiffMap(
       pi0_.uhf[1], pi1.uhf[1], wUhfMalta * hf_asymmetry_,
       wUhfMalta / hf_asymmetry_, norm1Uhf, &diffs, &block_diff_ac, 1));
+  jpegxl::progress::advanceCurrentProg("Diffmap");
   JXL_RETURN_IF_ERROR(MaltaDiffMap(
       pi0_.uhf[0], pi1.uhf[0], wUhfMaltaX * hf_asymmetry_,
       wUhfMaltaX / hf_asymmetry_, norm1UhfX, &diffs, &block_diff_ac, 0));
+  jpegxl::progress::advanceCurrentProg("Diffmap");
   JXL_RETURN_IF_ERROR(MaltaDiffMapLF(
       pi0_.hf[1], pi1.hf[1], wHfMalta * std::sqrt(hf_asymmetry_),
       wHfMalta / std::sqrt(hf_asymmetry_), norm1Hf, &diffs, &block_diff_ac, 1));
+  jpegxl::progress::advanceCurrentProg("Diffmap");
   JXL_RETURN_IF_ERROR(MaltaDiffMapLF(pi0_.hf[0], pi1.hf[0],
                                      wHfMaltaX * std::sqrt(hf_asymmetry_),
                                      wHfMaltaX / std::sqrt(hf_asymmetry_),
                                      norm1HfX, &diffs, &block_diff_ac, 0));
+  jpegxl::progress::advanceCurrentProg("Diffmap");
   JXL_RETURN_IF_ERROR(MaltaDiffMapLF(pi0_.mf.Plane(1), pi1.mf.Plane(1),
                                      wMfMalta, wMfMalta, norm1Mf, &diffs,
                                      &block_diff_ac, 1));
+  jpegxl::progress::advanceCurrentProg("Diffmap");
   JXL_RETURN_IF_ERROR(MaltaDiffMapLF(pi0_.mf.Plane(0), pi1.mf.Plane(0),
                                      wMfMaltaX, wMfMaltaX, norm1MfX, &diffs,
                                      &block_diff_ac, 0));
-
+  jpegxl::progress::advanceCurrentProg("Diffmap");
   JXL_ASSIGN_OR_RETURN(Image3F block_diff_dc,
                        Image3F::Create(memory_manager, xsize_, ysize_));
   for (size_t c = 0; c < 3; ++c) {
@@ -1938,15 +1953,17 @@ Status ButteraugliComparator::DiffmapPsychoImage(const PsychoImage& pi1,
     (pi0_.mf.Plane(c), pi1.mf.Plane(c), wmul[3 + c], &block_diff_ac.Plane(c));
     HWY_DYNAMIC_DISPATCH(SetL2Diff)
     (pi0_.lf.Plane(c), pi1.lf.Plane(c), wmul[6 + c], &block_diff_dc.Plane(c));
+    jpegxl::progress::advanceCurrentProg("Diffmap");
   }
 
   ImageF mask;
   JXL_RETURN_IF_ERROR(HWY_DYNAMIC_DISPATCH(MaskPsychoImage)(
       pi0_, pi1, xsize_, ysize_, params_, &blur_temp_, &mask,
       &block_diff_ac.Plane(1)));
-
+  jpegxl::progress::advanceCurrentProg("Diffmap");
   JXL_RETURN_IF_ERROR(HWY_DYNAMIC_DISPATCH(CombineChannelsToDiffmap)(
       mask, block_diff_dc, block_diff_ac, xmul_, &diffmap));
+  jpegxl::progress::advanceCurrentProg("Diffmap");
   return true;
 }
 

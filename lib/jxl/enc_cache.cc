@@ -43,6 +43,8 @@
 #include "lib/jxl/passes_state.h"
 #include "lib/jxl/quantizer.h"
 
+#include "lib/jxl/progress_manager.h"
+
 namespace jxl {
 
 Status ComputeACMetadata(ThreadPool* pool, PassesEncoderState* enc_state,
@@ -110,9 +112,11 @@ Status InitializePassesEncoder(const FrameHeader& frame_header,
         ComputeCoefficients(group_idx, enc_state, opsin, rect, &dc));
     return true;
   };
+  jpegxl::progress::addStep(jpegxl::progress::step("computeCoeffs"));
   JXL_RETURN_IF_ERROR(RunOnPool(pool, 0, shared.frame_dim.num_groups,
                                 ThreadPool::NoInit, process_group,
                                 "Compute coeffs"));
+  jpegxl::progress::popStep("computeCoeffs");
 
   if (frame_header.flags & FrameHeader::kUseDcFrame) {
     CompressParams cparams = enc_state->cparams;
@@ -181,9 +185,11 @@ Status InitializePassesEncoder(const FrameHeader& frame_header,
     dc_frame_info.ib_needs_color_transform = false;
     dc_frame_info.save_before_color_transform = true;  // Implicitly true
     AuxOut dc_aux_out;
+    jpegxl::progress::addStep(jpegxl::progress::step("encodeFrame"));
     JXL_RETURN_IF_ERROR(EncodeFrame(
         memory_manager, cparams, dc_frame_info, shared.metadata, *ib, cms, pool,
         special_frame.get(), aux_out ? &dc_aux_out : nullptr));
+    jpegxl::progress::popStep("encodeFrame");
     if (aux_out) {
       for (const auto& l : dc_aux_out.layers) {
         aux_out->layer(LayerType::Dc).Assimilate(l);
@@ -200,13 +206,16 @@ Status InitializePassesEncoder(const FrameHeader& frame_header,
         dec_state->output_encoding_info.SetFromMetadata(*shared.metadata));
     const uint8_t* frame_start = encoded.data();
     size_t encoded_size = encoded.size();
+    jpegxl::progress::addStep(jpegxl::progress::step("decodeFrame",cparams.progressive_dc+1,0,true));
     for (int i = 0; i <= cparams.progressive_dc; ++i) {
+      jpegxl::progress::advanceCurrentProg("decodeFrame");
       JXL_RETURN_IF_ERROR(DecodeFrame(
           dec_state.get(), pool, frame_start, encoded_size,
           /*frame_header=*/nullptr, decoded.get(), *shared.metadata));
       frame_start += decoded->decoded_bytes();
       encoded_size -= decoded->decoded_bytes();
     }
+    jpegxl::progress::popStep("decodeFrame");
     // TODO(lode): frame_header.dc_level should be equal to
     // dec_state.frame_header.dc_level - 1 here, since above we set
     // dc_frame_info.dc_level = frame_header.dc_level + 1, and
@@ -235,13 +244,17 @@ Status InitializePassesEncoder(const FrameHeader& frame_header,
           /*jpeg_transcode=*/false));
       return true;
     };
+    jpegxl::progress::addStep(jpegxl::progress::step("computeDcCoeffs"));
     JXL_RETURN_IF_ERROR(RunOnPool(pool, 0, shared.frame_dim.num_dc_groups,
                                   ThreadPool::NoInit, compute_dc_coeffs,
                                   "Compute DC coeffs"));
+    jpegxl::progress::popStep("computeDcCoeffs");
     // TODO(veluca): this is only useful in tests and if inspection is enabled.
     if (!(frame_header.flags & FrameHeader::kSkipAdaptiveDCSmoothing)) {
+      jpegxl::progress::addStep(jpegxl::progress::step("adaptiveSmoothing"));
       JXL_RETURN_IF_ERROR(AdaptiveDCSmoothing(
           memory_manager, shared.quantizer.MulDC(), &shared.dc_storage, pool));
+      jpegxl::progress::popStep("adaptiveSmoothing");
     }
   }
   return true;
